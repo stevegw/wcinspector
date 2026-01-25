@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 import os
 import httpx
 from sqlalchemy import text
+from datetime import datetime
 from database import SessionLocal, engine, Base
 
 # Create FastAPI application
@@ -91,6 +92,268 @@ async def health_check():
         "ollama_models": ollama_models,
         "version": "1.0.0"
     }
+
+
+# ============== Question/Answer API Endpoints ==============
+
+from pydantic import BaseModel
+from typing import Optional
+
+
+class AskRequest(BaseModel):
+    question: str
+
+
+@app.post("/api/ask")
+async def ask_question(request: AskRequest):
+    """Submit a question and get an AI-generated answer"""
+    from database import SessionLocal, Question, Answer, Setting
+    from rag import process_question
+    from datetime import datetime
+
+    question_text = request.question.strip()
+    if not question_text:
+        return {"error": "Question cannot be empty"}, 400
+
+    db = SessionLocal()
+    try:
+        # Get current settings
+        settings_records = db.query(Setting).all()
+        settings = {record.key: record.value for record in settings_records}
+        model = settings.get("ollama_model", "llama3:8b")
+        tone = settings.get("ai_tone", "technical")
+        length = settings.get("response_length", "detailed")
+
+        # Create question record
+        question = Question(question_text=question_text)
+        db.add(question)
+        db.commit()
+        db.refresh(question)
+
+        # Process through RAG pipeline
+        result = await process_question(
+            question=question_text,
+            model=model,
+            tone=tone,
+            length=length
+        )
+
+        # Store answer
+        answer = Answer(
+            question_id=question.id,
+            answer_text=result["answer_text"],
+            pro_tips=result["pro_tips"],
+            source_links=result["source_links"],
+            model_used=model,
+            tone_setting=tone,
+            length_setting=length
+        )
+        db.add(answer)
+        db.commit()
+
+        return {
+            "question_id": question.id,
+            "question_text": question_text,
+            "answer_text": result["answer_text"],
+            "pro_tips": result["pro_tips"],
+            "source_links": result["source_links"],
+            "model_used": model
+        }
+
+    finally:
+        db.close()
+
+
+@app.get("/api/questions")
+async def get_questions():
+    """Get question history (last 50 questions)"""
+    from database import SessionLocal, Question
+
+    db = SessionLocal()
+    try:
+        questions = db.query(Question).order_by(Question.created_at.desc()).limit(50).all()
+
+        return {
+            "questions": [
+                {
+                    "id": q.id,
+                    "question_text": q.question_text,
+                    "created_at": q.created_at.isoformat() if q.created_at else None
+                }
+                for q in questions
+            ]
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/questions/{question_id}")
+async def get_question(question_id: int):
+    """Get a specific question with its cached answer"""
+    from database import SessionLocal, Question, Answer
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        question = db.query(Question).filter(Question.id == question_id).first()
+
+        if not question:
+            return {"error": "Question not found"}, 404
+
+        # Update last accessed time
+        question.last_accessed_at = datetime.utcnow()
+        db.commit()
+
+        # Get the most recent answer for this question
+        answer = db.query(Answer).filter(Answer.question_id == question_id).order_by(Answer.created_at.desc()).first()
+
+        return {
+            "id": question.id,
+            "question_text": question.question_text,
+            "created_at": question.created_at.isoformat() if question.created_at else None,
+            "answer": {
+                "answer_text": answer.answer_text,
+                "pro_tips": answer.pro_tips,
+                "source_links": answer.source_links,
+                "model_used": answer.model_used,
+                "created_at": answer.created_at.isoformat() if answer.created_at else None
+            } if answer else None
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/questions/{question_id}/rerun")
+async def rerun_question(question_id: int):
+    """Re-run a question for a fresh answer"""
+    from database import SessionLocal, Question, Answer, Setting
+    from rag import process_question
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        question = db.query(Question).filter(Question.id == question_id).first()
+
+        if not question:
+            return {"error": "Question not found"}, 404
+
+        # Get current settings
+        settings_records = db.query(Setting).all()
+        settings = {record.key: record.value for record in settings_records}
+        model = settings.get("ollama_model", "llama3:8b")
+        tone = settings.get("ai_tone", "technical")
+        length = settings.get("response_length", "detailed")
+
+        # Process through RAG pipeline again
+        result = await process_question(
+            question=question.question_text,
+            model=model,
+            tone=tone,
+            length=length
+        )
+
+        # Store new answer
+        answer = Answer(
+            question_id=question.id,
+            answer_text=result["answer_text"],
+            pro_tips=result["pro_tips"],
+            source_links=result["source_links"],
+            model_used=model,
+            tone_setting=tone,
+            length_setting=length
+        )
+        db.add(answer)
+
+        # Update question access time
+        question.last_accessed_at = datetime.utcnow()
+        db.commit()
+
+        return {
+            "question_id": question.id,
+            "question_text": question.question_text,
+            "answer_text": result["answer_text"],
+            "pro_tips": result["pro_tips"],
+            "source_links": result["source_links"],
+            "model_used": model
+        }
+
+    finally:
+        db.close()
+
+
+@app.delete("/api/questions")
+async def clear_questions():
+    """Clear all question history"""
+    from database import SessionLocal, Question, Answer
+
+    db = SessionLocal()
+    try:
+        # Delete all answers first (due to foreign key constraint)
+        db.query(Answer).delete()
+        # Delete all questions
+        db.query(Question).delete()
+        db.commit()
+
+        return {"status": "success", "message": "History cleared"}
+    finally:
+        db.close()
+
+
+# ============== Data Management Endpoints ==============
+
+@app.get("/api/export")
+async def export_history():
+    """Export Q&A history as JSON"""
+    from database import SessionLocal, Question, Answer
+    from fastapi.responses import JSONResponse
+    import json
+
+    db = SessionLocal()
+    try:
+        questions = db.query(Question).order_by(Question.created_at.desc()).all()
+
+        export_data = []
+        for q in questions:
+            answers = db.query(Answer).filter(Answer.question_id == q.id).all()
+            export_data.append({
+                "question_text": q.question_text,
+                "created_at": q.created_at.isoformat() if q.created_at else None,
+                "answers": [
+                    {
+                        "answer_text": a.answer_text,
+                        "pro_tips": a.pro_tips,
+                        "source_links": a.source_links,
+                        "model_used": a.model_used,
+                        "created_at": a.created_at.isoformat() if a.created_at else None
+                    }
+                    for a in answers
+                ]
+            })
+
+        return JSONResponse(
+            content={"questions": export_data, "export_date": datetime.utcnow().isoformat()},
+            media_type="application/json"
+        )
+    finally:
+        db.close()
+
+
+@app.post("/api/reset")
+async def reset_knowledge_base():
+    """Reset the knowledge base - clear all scraped data"""
+    from database import SessionLocal, ScrapedPage, ScrapeStats
+
+    db = SessionLocal()
+    try:
+        # Delete all scraped pages
+        db.query(ScrapedPage).delete()
+        # Reset scrape stats
+        db.query(ScrapeStats).delete()
+        db.commit()
+
+        return {"status": "success", "message": "Knowledge base reset"}
+    finally:
+        db.close()
 
 
 # ============== Scraper API Endpoints ==============
