@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WCInspector - Windchill Knowledge Base</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-brand">
+            <h1>WCInspector</h1>
+            <span class="subtitle">Windchill Knowledge Base</span>
+        </div>
+        <div class="header-controls">
+            <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme">
+                <span class="icon">🌙</span>
+            </button>
+            <button id="settings-btn" class="icon-btn" aria-label="Settings">
+                <span class="icon">⚙️</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- History Sidebar -->
+        <aside class="history-sidebar" id="history-sidebar">
+            <div class="sidebar-header">
+                <h2>History</h2>
+                <button id="clear-history-btn" class="btn btn-small btn-danger">Clear</button>
+            </div>
+            <div class="history-list" id="history-list">
+                <!-- History items will be populated by JavaScript -->
+                <p class="empty-state">No questions yet</p>
+            </div>
+        </aside>
+
+        <!-- Main Panel -->
+        <section class="main-panel">
+            <!-- Question Input -->
+            <div class="question-card card">
+                <form id="question-form">
+                    <label for="question-input" class="sr-only">Ask a question about Windchill</label>
+                    <div class="input-group">
+                        <input
+                            type="text"
+                            id="question-input"
+                            placeholder="Ask a question about Windchill..."
+                            aria-label="Question input"
+                        >
+                        <button type="button" id="clear-input-btn" class="icon-btn" aria-label="Clear input">
+                            <span class="icon">✕</span>
+                        </button>
+                        <button type="submit" id="submit-btn" class="btn btn-primary">
+                            <span class="btn-text">Ask</span>
+                            <span class="spinner hidden"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Sample Questions (shown when no query) -->
+            <div class="sample-questions card" id="sample-questions">
+                <h3>Try asking about:</h3>
+                <div class="sample-list">
+                    <button class="sample-btn">What is Windchill PDMLink?</button>
+                    <button class="sample-btn">How do I create a BOM in Windchill?</button>
+                    <button class="sample-btn">What are Windchill lifecycle states?</button>
+                    <button class="sample-btn">How to configure Windchill workflows?</button>
+                </div>
+            </div>
+
+            <!-- Results Area -->
+            <div class="results-card card hidden" id="results-card">
+                <!-- Loading State -->
+                <div class="loading-state hidden" id="loading-state">
+                    <div class="spinner-large"></div>
+                    <p>Thinking...</p>
+                </div>
+
+                <!-- Answer Display -->
+                <div class="answer-display hidden" id="answer-display">
+                    <div class="answer-header">
+                        <h3>Answer</h3>
+                        <div class="answer-actions">
+                            <button id="copy-btn" class="icon-btn" aria-label="Copy answer">
+                                <span class="icon">📋</span>
+                            </button>
+                            <button id="rerun-btn" class="btn btn-small">Re-run</button>
+                        </div>
+                    </div>
+                    <div class="answer-text" id="answer-text">
+                        <!-- Answer content will be inserted here -->
+                    </div>
+
+                    <!-- Pro Tips -->
+                    <div class="pro-tips" id="pro-tips">
+                        <h4>💡 Pro Tips</h4>
+                        <div class="tips-list" id="tips-list">
+                            <!-- Pro tips will be inserted here -->
+                        </div>
+                    </div>
+
+                    <!-- Source Links -->
+                    <div class="source-actions">
+                        <button id="more-btn" class="btn btn-secondary">More Sources</button>
+                    </div>
+                </div>
+
+                <!-- Error State -->
+                <div class="error-state hidden" id="error-state">
+                    <p class="error-message" id="error-message">An error occurred</p>
+                    <button id="retry-btn" class="btn btn-primary">Try Again</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="scraper-status">
+            <span id="scraper-status-text">Knowledge base status: Unknown</span>
+            <button id="scraper-btn" class="btn btn-small">Manage</button>
+        </div>
+    </footer>
+
+    <!-- Settings Modal -->
+    <div class="modal hidden" id="settings-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group">
+                    <label for="tone-select">AI Tone</label>
+                    <select id="tone-select">
+                        <option value="formal">Formal</option>
+                        <option value="casual">Casual</option>
+                        <option value="technical" selected>Technical</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="length-select">Response Length</label>
+                    <select id="length-select">
+                        <option value="brief">Brief</option>
+                        <option value="detailed" selected>Detailed</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label for="model-select">Ollama Model</label>
+                    <select id="model-select">
+                        <!-- Models will be populated by JavaScript -->
+                    </select>
+                </div>
+                <div class="setting-actions">
+                    <button id="reset-settings-btn" class="btn btn-danger">Reset to Defaults</button>
+                    <button id="save-settings-btn" class="btn btn-primary">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sources Modal -->
+    <div class="modal hidden" id="sources-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Source Documentation</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <ul class="sources-list" id="sources-list">
+                    <!-- Source links will be inserted here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scraper Modal -->
+    <div class="modal hidden" id="scraper-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Knowledge Base Management</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="scraper-stats" id="scraper-stats">
+                    <p><strong>Pages scraped:</strong> <span id="pages-count">0</span></p>
+                    <p><strong>Last updated:</strong> <span id="last-updated">Never</span></p>
+                </div>
+                <div class="scraper-progress hidden" id="scraper-progress">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <p id="progress-text">Scraping...</p>
+                </div>
+                <div class="scraper-actions">
+                    <button id="start-scrape-btn" class="btn btn-primary">Start Full Scrape</button>
+                    <button id="export-btn" class="btn btn-secondary">Export Q&A History</button>
+                    <button id="reset-kb-btn" class="btn btn-danger">Reset Knowledge Base</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div class="modal hidden" id="confirm-modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2 id="confirm-title">Confirm</h2>
+            </div>
+            <div class="modal-body">
+                <p id="confirm-message">Are you sure?</p>
+                <div class="confirm-actions">
+                    <button id="confirm-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container">
+        <!-- Toast notifications will be inserted here -->
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,141 @@
+"""
+WCInspector - Database Models and Connection
+SQLite database for storing questions, answers, scraped pages, and settings
+"""
+
+import os
+from datetime import datetime
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+
+# Database file path
+DB_PATH = os.path.join(os.path.dirname(__file__), "wcinspector.db")
+DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+# Create engine and session
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Base class for models
+Base = declarative_base()
+
+
+class Question(Base):
+    """Model for storing user questions"""
+    __tablename__ = "questions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_accessed_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationship to answers
+    answers = relationship("Answer", back_populates="question", cascade="all, delete-orphan")
+
+
+class Answer(Base):
+    """Model for storing AI-generated answers"""
+    __tablename__ = "answers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
+    answer_text = Column(Text, nullable=False)
+    pro_tips = Column(JSON, default=list)  # List of pro tips
+    source_links = Column(JSON, default=list)  # List of PTC documentation URLs
+    related_qa_ids = Column(JSON, default=list)  # List of related question IDs
+    created_at = Column(DateTime, default=datetime.utcnow)
+    model_used = Column(String(100))
+    tone_setting = Column(String(50))
+    length_setting = Column(String(50))
+
+    # Relationship to question
+    question = relationship("Question", back_populates="answers")
+
+
+class ScrapedPage(Base):
+    """Model for storing scraped PTC documentation pages"""
+    __tablename__ = "scraped_pages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    url = Column(String(500), unique=True, nullable=False)
+    title = Column(String(500))
+    content = Column(Text)
+    section = Column(String(200))
+    topic = Column(String(200))
+    scraped_at = Column(DateTime, default=datetime.utcnow)
+    content_hash = Column(String(64))  # SHA-256 hash for detecting changes
+
+
+class ScrapeStats(Base):
+    """Model for storing scraping statistics"""
+    __tablename__ = "scrape_stats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    last_full_scrape = Column(DateTime)
+    last_partial_scrape = Column(DateTime)
+    total_pages = Column(Integer, default=0)
+    total_articles = Column(Integer, default=0)
+    scrape_duration = Column(Integer)  # Duration in seconds
+
+
+class Setting(Base):
+    """Model for storing user settings"""
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(100), unique=True, nullable=False)
+    value = Column(Text)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ErrorLog(Base):
+    """Model for storing error logs"""
+    __tablename__ = "error_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    error_type = Column(String(100))
+    message = Column(Text)
+    stack_trace = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# Default settings
+DEFAULT_SETTINGS = {
+    "theme": "light",
+    "ai_tone": "technical",
+    "response_length": "detailed",
+    "ollama_model": "llama2"
+}
+
+
+def init_db():
+    """Initialize the database - create all tables"""
+    Base.metadata.create_all(bind=engine)
+
+    # Initialize default settings
+    db = SessionLocal()
+    try:
+        for key, value in DEFAULT_SETTINGS.items():
+            existing = db.query(Setting).filter(Setting.key == key).first()
+            if not existing:
+                setting = Setting(key=key, value=value)
+                db.add(setting)
+        db.commit()
+    finally:
+        db.close()
+
+
+def get_db():
+    """Dependency for getting database session"""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    # Initialize database when run directly
+    init_db()
+    print(f"Database initialized at: {DB_PATH}")

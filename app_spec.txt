@@ -1,0 +1,395 @@
+<project_specification>
+  <project_name>wcinspector</project_name>
+
+  <overview>
+    A personal knowledge base tool that scrapes PTC Windchill documentation (starting at https://support.ptc.com/help/windchill/r13.1.2.0/en/) and uses a local AI (Ollama) to provide intelligent, contextual answers to user questions. The tool presents answers with pro tips, links to related internal Q&As, and access to original PTC documentation sources.
+  </overview>
+
+  <technology_stack>
+    <frontend>
+      <framework>Plain HTML/CSS/JavaScript</framework>
+      <styling>Custom CSS with PTC brand colors</styling>
+      <build>No build step required</build>
+    </frontend>
+    <backend>
+      <runtime>Python</runtime>
+      <framework>FastAPI</framework>
+      <database>SQLite</database>
+      <vector_database>ChromaDB</vector_database>
+    </backend>
+    <ai>
+      <provider>Ollama (local LLM)</provider>
+      <type>RAG (Retrieval-Augmented Generation)</type>
+    </ai>
+    <communication>
+      <api>REST API</api>
+    </communication>
+  </technology_stack>
+
+  <prerequisites>
+    <environment_setup>
+      - Python 3.10+ installed
+      - Ollama installed and running locally
+      - At least one LLM model pulled in Ollama (e.g., llama2, mistral)
+      - ChromaDB Python package
+      - FastAPI and uvicorn
+      - BeautifulSoup4 or similar for web scraping
+    </environment_setup>
+  </prerequisites>
+
+  <feature_count>64</feature_count>
+
+  <security_and_access_control>
+    <user_roles>
+      <role name="user">
+        <permissions>
+          - Full access to all features (personal tool)
+          - No authentication required
+        </permissions>
+        <protected_routes>
+          - None (open access via localhost)
+        </protected_routes>
+      </role>
+    </user_roles>
+    <authentication>
+      <method>None (localhost only, personal use)</method>
+      <session_timeout>None</session_timeout>
+    </authentication>
+    <sensitive_operations>
+      - Clean/reset knowledge base should prompt for confirmation
+      - Clear history should prompt for confirmation
+    </sensitive_operations>
+  </security_and_access_control>
+
+  <core_features>
+    <dashboard>
+      - Display sample/example questions on initial load
+      - Clickable example questions that populate input
+      - Welcome message or brief usage guide
+      - Visual indication of knowledge base status
+    </dashboard>
+
+    <question_input>
+      - Text input field for user questions
+      - Submit button with loading state
+      - Input validation (non-empty)
+      - Keyboard shortcut support (Enter to submit)
+      - Clear input button
+    </question_input>
+
+    <ai_response_results>
+      - Display AI-generated answer
+      - Pro tips section with visually distinct callout boxes
+      - Pro tips link to related internal Q&As
+      - Copy answer button
+      - Re-run query option
+      - Filter results by topic/documentation section
+      - Loading/thinking indicator during AI processing
+      - Error state display if AI fails
+    </ai_response_results>
+
+    <more_dialog_ptc_links>
+      - Modal/dialog for source PTC documentation links
+      - List of relevant source URLs used for answer
+      - Clickable links opening in new tab
+    </more_dialog_ptc_links>
+
+    <history_panel>
+      - Sidebar display of recent questions
+      - Last 50 questions limit
+      - Click to view cached answer
+      - Option to re-run query instead of cached
+      - Clear all history button with confirmation
+      - Visual indicator for selected history item
+    </history_panel>
+
+    <scraper_management>
+      - Initial full scrape of PTC documentation
+      - Progress indicator during scraping
+      - Targeted section/topic scraping for updates
+      - Manual re-scrape trigger button
+      - Last scraped date display
+      - Stats: number of pages/articles scraped
+      - Background scraping (non-blocking UI)
+      - Scrape error handling and logging
+    </scraper_management>
+
+    <settings>
+      - Light/dark mode toggle
+      - AI tone setting (formal, casual, technical)
+      - Response length setting (brief, detailed)
+      - Ollama model selection dropdown
+      - Settings persistence
+      - Settings reset to defaults option
+    </settings>
+
+    <data_management>
+      - Export Q&A history to JSON
+      - Clean/reset knowledge base with confirmation
+      - Download exported file
+      - Success/error feedback for operations
+    </data_management>
+
+    <error_handling_logging>
+      - Error logger for system issues
+      - User alerts for Ollama not running
+      - User alerts for scraper failures
+      - Graceful degradation when services unavailable
+    </error_handling_logging>
+
+    <ui_ux>
+      - Single-page responsive layout
+      - Question input at top
+      - Results area below input
+      - History sidebar
+      - Modern cards with shadows
+      - Subtle animations and transitions
+      - PTC brand color theming
+      - Light and dark theme support
+      - Mobile-friendly responsive design
+      - Smooth scrolling
+    </ui_ux>
+  </core_features>
+
+  <database_schema>
+    <tables>
+      <questions>
+        - id (PRIMARY KEY)
+        - question_text
+        - created_at
+        - last_accessed_at
+      </questions>
+      <answers>
+        - id (PRIMARY KEY)
+        - question_id (FOREIGN KEY)
+        - answer_text
+        - pro_tips (JSON)
+        - source_links (JSON)
+        - related_qa_ids (JSON)
+        - created_at
+        - model_used
+        - tone_setting
+        - length_setting
+      </answers>
+      <scraped_pages>
+        - id (PRIMARY KEY)
+        - url
+        - title
+        - content
+        - section
+        - topic
+        - scraped_at
+        - content_hash
+      </scraped_pages>
+      <scrape_stats>
+        - id (PRIMARY KEY)
+        - last_full_scrape
+        - last_partial_scrape
+        - total_pages
+        - total_articles
+        - scrape_duration
+      </scrape_stats>
+      <settings>
+        - id (PRIMARY KEY)
+        - key
+        - value
+        - updated_at
+      </settings>
+      <error_logs>
+        - id (PRIMARY KEY)
+        - error_type
+        - message
+        - stack_trace
+        - created_at
+      </error_logs>
+    </tables>
+  </database_schema>
+
+  <api_endpoints_summary>
+    <questions>
+      - POST /api/ask - Submit a question and get AI answer
+      - GET /api/questions - Get question history
+      - GET /api/questions/{id} - Get specific question with cached answer
+      - POST /api/questions/{id}/rerun - Re-run query for fresh answer
+      - DELETE /api/questions - Clear all history
+    </questions>
+    <scraper>
+      - POST /api/scraper/start - Start full scrape
+      - POST /api/scraper/update - Start targeted scrape
+      - GET /api/scraper/status - Get scrape progress/status
+      - GET /api/scraper/stats - Get scrape statistics
+    </scraper>
+    <settings>
+      - GET /api/settings - Get all settings
+      - PUT /api/settings - Update settings
+      - POST /api/settings/reset - Reset to defaults
+    </settings>
+    <data>
+      - GET /api/export - Export Q&A history as JSON
+      - POST /api/reset - Clean/reset knowledge base
+    </data>
+    <system>
+      - GET /api/health - Health check (Ollama status, etc.)
+      - GET /api/models - List available Ollama models
+      - GET /api/logs - Get recent error logs
+    </system>
+  </api_endpoints_summary>
+
+  <ui_layout>
+    <main_structure>
+      Single-page application with three main areas:
+      1. Header: App title, settings button, theme toggle
+      2. Main content area (flex row):
+         - Left: History sidebar (collapsible)
+         - Right: Main panel with question input at top, results below
+      3. Footer: Scraper status, last updated info
+    </main_structure>
+    <components>
+      - Header bar with branding and controls
+      - History sidebar with scrollable list
+      - Question input card with submit button
+      - Results card with answer, pro tips, and "More" button
+      - Pro tips callout boxes
+      - "More" modal for PTC source links
+      - Settings modal/panel
+      - Scraper management panel
+      - Toast notifications for alerts
+      - Progress bar for scraping
+      - Loading spinners
+    </components>
+  </ui_layout>
+
+  <design_system>
+    <color_palette>
+      <primary>
+        - PTC Green: #8BC53F
+        - PTC Green Dark: #6FA032
+        - PTC Green Light: #A8D96A
+      </primary>
+      <neutrals>
+        - Charcoal: #2D2D2D
+        - Gray Dark: #1A1A1A
+        - Gray: #4A4A4A
+        - Gray Light: #6B6B6B
+      </neutrals>
+      <light_theme>
+        - Background: #FFFFFF
+        - Surface: #F5F5F5
+        - Text: #2D2D2D
+        - Accent: #8BC53F
+      </light_theme>
+      <dark_theme>
+        - Background: #1A1A1A
+        - Surface: #2D2D2D
+        - Text: #FFFFFF
+        - Accent: #8BC53F
+      </dark_theme>
+    </color_palette>
+    <typography>
+      - Primary font: System font stack (San Francisco, Segoe UI, Roboto)
+      - Monospace for code snippets
+      - Headings: Semi-bold
+      - Body: Regular weight
+    </typography>
+    <effects>
+      - Card shadows: subtle drop shadows
+      - Hover states: slight elevation change
+      - Transitions: 200-300ms ease
+      - Focus states: green outline
+    </effects>
+  </design_system>
+
+  <implementation_steps>
+    <step number="1">
+      <title>Project Setup & Infrastructure</title>
+      <tasks>
+        - Initialize Python project with FastAPI
+        - Set up SQLite database with schema
+        - Configure ChromaDB for vector storage
+        - Create basic project structure
+        - Set up Ollama integration
+      </tasks>
+    </step>
+    <step number="2">
+      <title>Web Scraper Development</title>
+      <tasks>
+        - Build PTC documentation scraper
+        - Implement progress tracking
+        - Store scraped content in SQLite
+        - Generate embeddings and store in ChromaDB
+        - Add targeted/section scraping capability
+      </tasks>
+    </step>
+    <step number="3">
+      <title>AI/RAG Pipeline</title>
+      <tasks>
+        - Implement semantic search via ChromaDB
+        - Build RAG pipeline with Ollama
+        - Generate pro tips from context
+        - Extract source links
+        - Implement answer caching
+      </tasks>
+    </step>
+    <step number="4">
+      <title>API Development</title>
+      <tasks>
+        - Create all REST endpoints
+        - Implement question/answer flow
+        - Add history management
+        - Build settings API
+        - Add export/reset functionality
+        - Implement error logging
+      </tasks>
+    </step>
+    <step number="5">
+      <title>Frontend Development</title>
+      <tasks>
+        - Build HTML structure
+        - Implement CSS with PTC theming
+        - Create light/dark mode
+        - Build all UI components
+        - Add JavaScript interactivity
+        - Implement API integration
+      </tasks>
+    </step>
+    <step number="6">
+      <title>Polish & Error Handling</title>
+      <tasks>
+        - Add loading states and animations
+        - Implement toast notifications
+        - Add comprehensive error handling
+        - Test Ollama connectivity alerts
+        - Responsive design refinements
+      </tasks>
+    </step>
+  </implementation_steps>
+
+  <success_criteria>
+    <functionality>
+      - User can ask questions and receive credible, helpful answers
+      - Answers are sourced from scraped PTC Windchill documentation
+      - Pro tips provide additional value and link to related Q&As
+      - History allows quick access to previous questions
+      - Scraper successfully indexes PTC documentation
+    </functionality>
+    <user_experience>
+      - Clean, intuitive single-page interface
+      - Fast response times for cached answers
+      - Clear feedback during AI processing
+      - Smooth theme switching
+      - Easy access to settings and management features
+    </user_experience>
+    <technical_quality>
+      - Reliable RAG pipeline with relevant context retrieval
+      - Graceful handling of Ollama/service unavailability
+      - Proper error logging and user alerts
+      - Efficient database queries
+    </technical_quality>
+    <design_polish>
+      - Modern, professional appearance
+      - Consistent PTC brand colors
+      - Smooth animations and transitions
+      - Responsive layout
+    </design_polish>
+  </success_criteria>
+</project_specification>
