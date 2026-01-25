@@ -94,3 +94,72 @@ Response format:
 
 ### Git Commit:
 - Committed changes with message: "Implement health check endpoint with Ollama and database status"
+
+## Session 3 - January 25, 2025 (Regression Testing Agent - Feature #2)
+
+### Regression Test: Feature #2 - Health check endpoint returns Ollama status
+
+**Test Result: PASSED - No regression found**
+
+#### Verification Steps:
+1. ✅ Called GET /api/health endpoint on port 8001
+2. ✅ Verified response contains Ollama status field: 'ollama': 'connected'
+3. ✅ Verified response contains database status field: 'database': 'connected'
+4. ✅ Confirmed response is valid JSON (content-type: application/json)
+5. ✅ Confirmed HTTP status code 200
+
+#### Full Response Body:
+```json
+{"status":"healthy","database":"connected","ollama":"connected","ollama_models":["llama3:8b","mistral:latest"],"version":"1.0.0"}
+```
+
+#### Screenshots Captured:
+- regression_test_feature2_health_endpoint.png
+- regression_test_feature2_swagger_response.png
+- regression_test_feature2_response_details.png
+
+#### Console Errors: None
+
+[Testing] Feature #2 verified - still passing
+
+## Session 4 - January 25, 2025 (Agent working on Feature #5)
+
+### Feature #5: "Question input area displays correctly"
+
+**Test Result: PASSED**
+
+#### Verification Steps:
+1. ✅ Navigate to the application - http://localhost:8001 loaded successfully
+2. ✅ Verify question input field is visible - textbox "Question input" present with placeholder
+3. ✅ Confirm submit button is present - "Ask" button visible (green styling)
+4. ✅ Verify clear input button exists - "✕" button present and functional
+5. ✅ Check placeholder text is appropriate - "Ask a question about Windchill..." displayed
+
+#### Key Findings:
+- Two servers are running:
+  - Port 8000: "Windchill Investigator" (different UI, pre-existing)
+  - Port 8001: "WCInspector" (matches frontend/index.html code)
+- The proper application for testing is on port 8001
+- Clear input button successfully clears entered text
+
+#### Screenshots Captured:
+- feature5_question_input_area.png (port 8000 - different UI)
+- feature5_port8001_question_input.png (port 8001 - correct UI)
+- feature5_text_entered.png (text entered verification)
+- feature5_after_clear.png (clear button verification)
+
+#### Console Errors:
+- API endpoint 404s (settings, questions, scraper/stats) - expected as these features are not yet implemented
+- No errors related to the question input functionality itself
+
+### Current Status:
+- Features passing: 4/64 (~6.3%)
+- Feature #5: Question input area displays correctly - PASSED
+
+### Notes:
+- Port 8001 serves the correct frontend from frontend/index.html
+- The question input area has all required elements:
+  - Text input with appropriate placeholder
+  - Submit button ("Ask")
+  - Clear input button ("✕")
+- All elements are visually correct and functional
