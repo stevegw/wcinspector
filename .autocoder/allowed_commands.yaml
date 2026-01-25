@@ -14,7 +14,28 @@ version: 1
 # Uncomment the commands you need for your specific project.
 # By default, this file has NO commands enabled - you must explicitly add them.
 
-commands: []
+commands:
+  # Python Development
+  - name: python
+    description: Python interpreter
+  - name: python3
+    description: Python 3 interpreter
+  - name: pip
+    description: Python package installer
+  - name: pip3
+    description: Python 3 package installer
+  - name: uvicorn
+    description: ASGI server for FastAPI
+  - name: pytest
+    description: Python testing framework
+
+  # Database Tools
+  - name: sqlite3
+    description: SQLite database CLI
+
+  # Shell navigation
+  - name: cd
+    description: Change directory
 
   # ==========================================
   # iOS Development Example
