@@ -1,0 +1,40 @@
+# WCInspector Development Progress
+
+## Session 1 - January 25, 2025
+
+### What was accomplished:
+- Set up Python virtual environment in `venv/` directory
+- Installed all required dependencies (FastAPI, uvicorn, SQLAlchemy, ChromaDB, BeautifulSoup4, etc.)
+- Started the FastAPI backend server on port 8000
+- Verified Feature #1: "App loads without errors"
+
+### Feature #1 Verification Details:
+- Navigated to http://localhost:8000
+- Page loads successfully with title "Windchill Investigator"
+- No JavaScript console errors
+- No warnings in console
+- All main UI elements are visible:
+  - Header with app title and branding
+  - History sidebar with empty state
+  - Question input textbox with placeholder
+  - Send button
+  - 5 sample/example questions
+  - Welcome message
+  - Knowledge base stats (4,765 chunks indexed, llama3:8b model)
+- Network requests successful (API stats endpoint returns 200 OK)
+- Screenshot saved to .playwright-mcp/feature1_initial_load.png
+
+### Current Status:
+- Features passing: 1/64 (1.56%)
+- Features in progress: 1 (Feature #2 being worked on by another agent)
+
+### Notes:
+- The application appears to be more developed than the initial skeleton files suggested
+- A different frontend/UI has been implemented (different from the index.html in frontend/ folder)
+- The actual app is served from a static folder with a different structure
+- The backend health endpoint works and reports Ollama connection with llama3:8b model
+- Knowledge base already has 4,765 chunks indexed
+
+### Next Steps:
+- Continue with remaining features
+- Features should be verified one at a time through the browser
