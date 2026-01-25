@@ -93,6 +93,192 @@ async def health_check():
     }
 
 
+# ============== Scraper API Endpoints ==============
+
+@app.get("/api/scraper/stats")
+async def get_scraper_stats():
+    """Get scraping statistics"""
+    from database import SessionLocal, ScrapeStats, ScrapedPage
+
+    db = SessionLocal()
+    try:
+        stats = db.query(ScrapeStats).first()
+        total_pages = db.query(ScrapedPage).count()
+
+        if stats:
+            return {
+                "total_pages": total_pages,
+                "last_full_scrape": stats.last_full_scrape.isoformat() if stats.last_full_scrape else None,
+                "last_partial_scrape": stats.last_partial_scrape.isoformat() if stats.last_partial_scrape else None,
+                "scrape_duration": stats.scrape_duration
+            }
+        else:
+            return {
+                "total_pages": total_pages,
+                "last_full_scrape": None,
+                "last_partial_scrape": None,
+                "scrape_duration": None
+            }
+    finally:
+        db.close()
+
+
+@app.get("/api/scraper/status")
+async def get_scraper_status():
+    """Get current scraper status and progress"""
+    from scraper import get_scraper_state
+
+    state = get_scraper_state()
+    return {
+        "in_progress": state["in_progress"],
+        "progress": state["progress"],
+        "status_text": state["status_text"],
+        "current_url": state["current_url"],
+        "pages_scraped": state["pages_scraped"],
+        "total_pages_estimate": state["total_pages_estimate"],
+        "errors": state["errors"]
+    }
+
+
+@app.post("/api/scraper/start")
+async def start_scraper(max_pages: int = 50):
+    """Start a full scrape of PTC documentation"""
+    from scraper import get_scraper_state, start_scrape_background
+    from database import SessionLocal
+
+    # Check if already scraping
+    state = get_scraper_state()
+    if state["in_progress"]:
+        return {"status": "error", "message": "Scrape already in progress"}
+
+    # Start scrape in background
+    db = SessionLocal()
+    await start_scrape_background(db, max_pages)
+
+    return {
+        "status": "started",
+        "message": "Scrape started in background",
+        "max_pages": max_pages
+    }
+
+
+@app.post("/api/scraper/update")
+async def start_targeted_scrape(section: str = None, max_pages: int = 20):
+    """Start a targeted scrape for updates"""
+    from scraper import get_scraper_state, start_scrape_background
+    from database import SessionLocal
+
+    # Check if already scraping
+    state = get_scraper_state()
+    if state["in_progress"]:
+        return {"status": "error", "message": "Scrape already in progress"}
+
+    # Start targeted scrape in background
+    db = SessionLocal()
+    await start_scrape_background(db, max_pages)
+
+    return {
+        "status": "started",
+        "message": f"Targeted scrape started for section: {section or 'all'}",
+        "max_pages": max_pages
+    }
+
+
+# ============== Settings API Endpoints ==============
+
+@app.get("/api/settings")
+async def get_settings():
+    """Get all user settings"""
+    from database import SessionLocal, Setting, DEFAULT_SETTINGS
+
+    db = SessionLocal()
+    try:
+        # Fetch all settings from the database
+        settings_records = db.query(Setting).all()
+
+        # Build settings dict from database, starting with defaults
+        settings = dict(DEFAULT_SETTINGS)
+        for record in settings_records:
+            settings[record.key] = record.value
+
+        return {
+            "theme": settings.get("theme", "light"),
+            "ai_tone": settings.get("ai_tone", "technical"),
+            "response_length": settings.get("response_length", "detailed"),
+            "ollama_model": settings.get("ollama_model", "llama2")
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/settings")
+async def update_settings(settings_update: dict):
+    """Update user settings"""
+    from database import SessionLocal, Setting
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        # Valid setting keys
+        valid_keys = ["theme", "ai_tone", "response_length", "ollama_model"]
+
+        for key, value in settings_update.items():
+            if key in valid_keys:
+                existing = db.query(Setting).filter(Setting.key == key).first()
+                if existing:
+                    existing.value = str(value)
+                    existing.updated_at = datetime.utcnow()
+                else:
+                    new_setting = Setting(key=key, value=str(value))
+                    db.add(new_setting)
+
+        db.commit()
+
+        # Return updated settings
+        settings_records = db.query(Setting).all()
+        settings = {record.key: record.value for record in settings_records}
+
+        return {
+            "status": "success",
+            "settings": {
+                "theme": settings.get("theme", "light"),
+                "ai_tone": settings.get("ai_tone", "technical"),
+                "response_length": settings.get("response_length", "detailed"),
+                "ollama_model": settings.get("ollama_model", "llama2")
+            }
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/settings/reset")
+async def reset_settings():
+    """Reset all settings to defaults"""
+    from database import SessionLocal, Setting, DEFAULT_SETTINGS
+    from datetime import datetime
+
+    db = SessionLocal()
+    try:
+        for key, value in DEFAULT_SETTINGS.items():
+            existing = db.query(Setting).filter(Setting.key == key).first()
+            if existing:
+                existing.value = value
+                existing.updated_at = datetime.utcnow()
+            else:
+                new_setting = Setting(key=key, value=value)
+                db.add(new_setting)
+
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "Settings reset to defaults",
+            "settings": dict(DEFAULT_SETTINGS)
+        }
+    finally:
+        db.close()
+
+
 @app.get("/api/models")
 async def list_models():
     """List available Ollama models"""

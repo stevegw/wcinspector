@@ -18,6 +18,8 @@ commands:
   # Python Development
   - name: python
     description: Python interpreter
+  - name: python.exe
+    description: Python interpreter (Windows)
   - name: python3
     description: Python 3 interpreter
   - name: pip
@@ -26,6 +28,8 @@ commands:
     description: Python 3 package installer
   - name: uvicorn
     description: ASGI server for FastAPI
+  - name: uvicorn.exe
+    description: ASGI server for FastAPI (Windows)
   - name: pytest
     description: Python testing framework
 
