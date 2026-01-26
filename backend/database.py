@@ -105,7 +105,7 @@ DEFAULT_SETTINGS = {
     "theme": "light",
     "ai_tone": "technical",
     "response_length": "detailed",
-    "ollama_model": "llama2"
+    "ollama_model": "llama3:8b"
 }
 
 
