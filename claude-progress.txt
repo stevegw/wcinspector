@@ -730,3 +730,62 @@ Verify manual scrape trigger button works
 
 ### Git Commit:
 - Committing with message: "Re-verify Feature #36: Scraper can be started from UI"
+
+## Session - January 25, 2025 (Agent working on Feature #6)
+
+### Feature #6: "Layout renders correctly at desktop width (1920px)"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify the application layout at full desktop resolution
+
+#### Verification Steps:
+1. ✅ Resize browser to 1920px width - Confirmed viewport: 1920x1080
+2. ✅ Verify layout (sidebar, content, space) - Sidebar: 280px, Main panel: 900px centered with 370px margin
+3. ✅ Confirm no horizontal scrollbar appears - `hasHorizontalScroll: false`
+4. ✅ Verify all elements are properly sized:
+   - Header: 60px height, fixed position, full width
+   - Sidebar: 280px width, flexShrink: 0
+   - Main panel: 900px max-width, centered with padding
+   - Footer: 48px height, fixed position
+   - Question card: 852px width with 12px border-radius, shadow
+5. ✅ Check spacing and padding are consistent:
+   - CSS variables applied: 4px, 8px, 16px, 24px
+   - Header padding: 0 24px
+   - Main panel padding: 24px
+   - Card padding: 16px
+
+#### Layout Verification Data:
+```json
+{
+  "viewportWidth": 1920,
+  "viewportHeight": 1080,
+  "horizontalScrollbar": false,
+  "sidebar": { "width": "280px", "flexShrink": "0" },
+  "mainPanel": { "width": "900px", "maxWidth": "900px", "padding": "24px" },
+  "header": { "width": "1920px", "height": "60px" },
+  "footer": { "width": "1920px", "height": "48px" }
+}
+```
+
+#### Screenshots Captured:
+- feature6_1920px_layout.png (initial 1920px layout)
+- feature6_1920px_fullpage.png (full page screenshot)
+- feature6_final_verification.png (final verification)
+
+#### Console Errors:
+- API 404 errors for /api/settings, /api/questions, /api/scraper/stats (unrelated to layout feature)
+- These errors are due to port 8001 having an older server instance without full API
+
+#### Notes:
+- Server running on port 8001
+- Layout uses flexbox with fixed sidebar and centered main content
+- The design follows the spec: sidebar on left, main content centered, whitespace on right
+- All CSS variables for spacing are correctly defined and applied
+- PTC brand colors and design system properly implemented
+
+### Current Status:
+- Features passing: 9/64 (~14.1%)
+- Feature #6: Layout renders correctly at desktop width (1920px) - PASSED
+
