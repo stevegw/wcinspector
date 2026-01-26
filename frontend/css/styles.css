@@ -365,6 +365,17 @@ a:hover { color: var(--accent-hover); }
     color: var(--text-muted);
 }
 
+/* Input Error State */
+.input-group input.input-error {
+    border-color: var(--error);
+    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
+}
+
+.input-group input.input-error:focus {
+    border-color: var(--error);
+    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
+}
+
 /* Sample Questions */
 .sample-questions h3 {
     margin-bottom: var(--space-md);

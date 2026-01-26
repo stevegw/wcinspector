@@ -202,6 +202,11 @@ function setupEventListeners() {
             elements.questionForm.dispatchEvent(new Event('submit'));
         }
     });
+
+    // Clear error state when user starts typing
+    elements.questionInput.addEventListener('input', () => {
+        elements.questionInput.classList.remove('input-error');
+    });
 }
 
 // API Functions
@@ -298,9 +303,13 @@ async function handleQuestionSubmit(e) {
     const question = elements.questionInput.value.trim();
     if (!question) {
         showToast('Please enter a question', 'error');
+        elements.questionInput.classList.add('input-error');
         elements.questionInput.focus();
         return;
     }
+
+    // Clear error state on successful validation
+    elements.questionInput.classList.remove('input-error');
 
     // Show loading state
     showLoading();
