@@ -692,7 +692,7 @@ select:focus {
 }
 
 /* Responsive Design */
-@media (max-width: 768px) {
+@media (max-width: 768.98px) {
     .history-sidebar {
         position: fixed;
         left: -100%;
