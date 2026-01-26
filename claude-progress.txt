@@ -584,3 +584,102 @@ Verify GET /api/scraper/stats returns accurate statistics
 - The actual PTC website scraping fails due to HTTP header issues
 - Test data was used to verify the stats functionality works correctly
 - The scraper module attempts to scrape PTC but encounters "multiple Transfer-Encoding headers" error
+
+## Session - January 25, 2026 (Regression Testing Agent - Feature #2)
+
+### Regression Test: Feature #2 - Health check endpoint returns Ollama status
+
+**Test Result: PASSED - No regression found**
+
+#### Verification Steps:
+1. ✅ Call GET /api/health endpoint - Successfully called
+2. ✅ Verify response contains Ollama status field - \ present
+3. ✅ Verify response contains database status field - \ present
+4. ✅ Check response is valid JSON - Valid JSON with all expected fields
+5. ✅ Confirm appropriate HTTP status code (200) - HTTP 200 OK
+
+#### API Response:
+```json
+{"status":"healthy","database":"connected","ollama":"connected","ollama_models":["llama3:8b","mistral:latest"],"version":"1.0.0"}
+```
+
+#### Screenshots:
+- regression_feature2_health_endpoint.png
+
+#### Console Errors: None
+
+[Testing] Feature #2 verified - still passing
+
+## Session - January 25, 2026 (Regression Testing Agent - Feature #2)
+
+### Regression Test: Feature #2 - Health check endpoint returns Ollama status
+
+**Test Result: PASSED - No regression found**
+
+#### Verification Steps:
+1. ✅ Call GET /api/health endpoint - Successfully called
+2. ✅ Verify response contains Ollama status field - `"ollama":"connected"` present
+3. ✅ Verify response contains database status field - `"database":"connected"` present
+4. ✅ Check response is valid JSON - Valid JSON with all expected fields
+5. ✅ Confirm appropriate HTTP status code (200) - HTTP 200 OK
+
+#### API Response:
+```json
+{"status":"healthy","database":"connected","ollama":"connected","ollama_models":["llama3:8b","mistral:latest"],"version":"1.0.0"}
+```
+
+#### Screenshots:
+- regression_feature2_health_endpoint.png
+
+#### Console Errors: None
+
+[Testing] Feature #2 verified - still passing
+
+## Session 8 - January 26, 2026 (Agent working on Feature #36 - Re-verification)
+
+### Feature #36: "Scraper can be started from UI"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify manual scrape trigger button works
+
+#### Verification Steps:
+1. ✅ Navigate to scraper management section - Clicked "Manage" button in footer, modal opened
+2. ✅ Click 'Start scrape' or re-scrape button - Clicked "Start Full Scrape" button
+3. ✅ Verify API call is made to POST /api/scraper/start - Network: `[POST] /api/scraper/start => [200] OK`
+4. ✅ Verify progress indicator appears - Status text "Scraping: https://support.ptc.com/help/windchill/r13.1.2.0/e...", button disabled
+5. ✅ Confirm scraper status updates - Multiple GET /api/scraper/status calls for polling, stats refreshed
+
+#### Network Requests Verified:
+```
+[GET] http://localhost:8002/api/scraper/stats => [200] OK
+[GET] http://localhost:8002/api/models => [200] OK
+[POST] http://localhost:8002/api/scraper/start => [200] OK
+[GET] http://localhost:8002/api/scraper/status => [200] OK (multiple times)
+[GET] http://localhost:8002/api/scraper/stats => [200] OK
+```
+
+#### Screenshots Captured:
+- feature36_scraper_modal_open.png (modal open before starting scrape)
+- feature36_scraper_in_progress.png (scrape in progress with status text)
+- feature36_scraper_complete.png (scrape completed, stats updated)
+
+#### Console Errors:
+- 404 errors for /api/settings and /api/questions (unrelated to scraper feature)
+- No errors related to the scraper functionality
+
+#### Notes:
+- WCInspector server running on port 8002
+- Scraper management modal opens from footer "Manage" button
+- "Start Full Scrape" button triggers POST /api/scraper/start
+- Button becomes disabled during scraping (prevents duplicate scrapes)
+- Status polling via GET /api/scraper/status
+- Stats refresh shows updated "Last updated" timestamp
+
+### Current Status:
+- Features passing: 7/64 (~10.9%)
+- Feature #36: Scraper can be started from UI - PASSED ✅
+
+### Git Commit:
+- Committing with message: "Re-verify Feature #36: Scraper can be started from UI"
