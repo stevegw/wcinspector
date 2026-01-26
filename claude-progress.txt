@@ -1283,3 +1283,60 @@ Verify example questions are shown when app first loads
 
 ### Git Commit:
 - Committed with message: "Verify Feature #13: Sample questions display on initial load"
+
+
+## Session - January 26, 2026 (Agent working on Feature #15)
+
+### Feature #15: "Empty question input shows validation error"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify submitting empty input shows appropriate error
+
+#### Implementation Changes:
+1. Added CSS class `.input-error` for visual error state (red border + red shadow)
+2. Modified `handleQuestionSubmit()` to add error class on empty input
+3. Added input event listener to clear error state when user starts typing
+4. Clear error state on successful validation before submission
+
+#### Files Modified:
+- frontend/css/styles.css (added .input-error CSS class)
+- frontend/js/app.js (error state logic)
+
+#### Verification Steps:
+1. ✅ Navigate to application - http://localhost:8000 loaded
+2. ✅ Leave question input empty - Input cleared
+3. ✅ Click submit button - Clicked "Ask" button
+4. ✅ Verify validation error message appears - Toast "Please enter a question" displayed
+5. ✅ Confirm input field shows error state - Red border with red shadow applied
+6. ✅ Verify form does not submit - No POST /api/ask request made
+
+#### Additional Tests Verified:
+- ✅ Enter key triggers validation (keyboard shortcut works)
+- ✅ Whitespace-only input is rejected (trim validation works)
+- ✅ Error state clears when user starts typing
+- ✅ No console errors (only favicon.ico 404)
+
+#### Screenshots Captured:
+- feature15_empty_validation_error.png
+- feature15_validation_error_with_toast.png
+- feature15_full_page_validation.png
+- feature15_error_cleared_on_typing.png
+- feature15_enter_key_validation.png
+- feature15_whitespace_only_validation.png
+
+#### Network Requests Verified:
+- No POST /api/ask request was made when validation failed
+- Form submission correctly blocked by validation
+
+#### Console Errors:
+- Only favicon.ico 404 (unrelated to validation feature)
+
+### Current Status:
+- Features passing: 17/64 (~26.6%)
+- Feature #15: Empty question input shows validation error - PASSED
+
+### Git Commit:
+- Committed with message: "Implement empty question input validation with visual error state"
+
