@@ -724,7 +724,8 @@ select:focus {
     }
 }
 
-@media (max-width: 375px) {
+/* Mobile - Touch-friendly targets (min 44px) */
+@media (max-width: 480px) {
     :root {
         --space-lg: 16px;
         --space-xl: 24px;
@@ -738,12 +739,41 @@ select:focus {
         padding: var(--space-md);
     }
 
+    /* Touch-friendly button sizes - minimum 44px height */
     .btn {
         padding: var(--space-md);
+        min-height: 44px;
+    }
+
+    .btn-small {
+        min-height: 44px;
+        padding: var(--space-sm) var(--space-md);
     }
 
     .icon-btn {
         width: 44px;
         height: 44px;
+    }
+
+    .sample-btn {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    /* Input group - ensure Ask button is touch-friendly */
+    .input-group input {
+        min-height: 44px;
+    }
+
+    /* Clear input button - ensure touchable */
+    .clear-input {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* Footer button touch target */
+    .scraper-status .btn-small {
+        min-height: 44px;
     }
 }
