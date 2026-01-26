@@ -897,3 +897,154 @@ Verify submitted questions appear in history sidebar
 
 ### Git Commit:
 - Committing with screenshots and progress notes
+
+## Session 10 - January 26, 2026 (Agent working on Feature #7)
+
+### Feature #7: "Layout renders correctly at tablet width (768px)"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify responsive behavior at tablet resolution (768px width)
+
+#### Issue Found and Fixed:
+The CSS media query `@media (max-width: 768px)` was not including exactly 768px due to browser interpretation. Fixed by changing to `@media (max-width: 768.98px)` to ensure 768px triggers the tablet responsive styles.
+
+#### Verification Steps:
+1. ✅ Resize browser to 768px width - Viewport set to 768x1024
+2. ✅ Verify layout adapts appropriately:
+   - Sidebar hidden (position: fixed, left: -768px)
+   - Main content uses full width (768px)
+   - Subtitle hidden from header
+   - Sample buttons stack vertically
+3. ✅ Confirm sidebar collapses or adjusts:
+   - Sidebar has `position: fixed` and `left: -768.372px` (hidden off-screen)
+   - Can be toggled with `.open` class
+4. ✅ Verify no horizontal scrollbar:
+   - `hasHorizontalScroll: false`
+   - Document width equals viewport width (768px)
+5. ✅ Check all interactive elements remain accessible:
+   - Theme toggle button ✅
+   - Settings button + modal ✅
+   - Question input textbox ✅
+   - Ask button ✅
+   - Sample question buttons ✅
+   - Footer Manage button + modal ✅
+
+#### CSS Fix Applied:
+```css
+/* Before */
+@media (max-width: 768px) { ... }
+
+/* After */
+@media (max-width: 768.98px) { ... }
+```
+
+#### Screenshots Captured:
+- feature7_768px_initial.png (before CSS fix)
+- feature7_767px_sidebar_hidden.png (at 767px confirming responsive works)
+- feature7_768px_responsive_fixed.png (after CSS fix at 768px)
+- feature7_768px_settings_modal.png (settings modal at tablet width)
+- feature7_768px_manage_modal.png (manage modal at tablet width)
+- feature7_768px_final_verification.png (final verification)
+
+#### Console Errors:
+- Only favicon.ico 404 (unrelated to layout feature)
+
+#### Files Modified:
+- frontend/css/styles.css (media query breakpoint fix)
+
+### Current Status:
+- Features passing: 10/64 (~15.6%)
+- Feature #7: Layout renders correctly at tablet width (768px) - PASSED
+
+### Git Commit:
+- Committed with message: "Fix responsive CSS breakpoint for 768px tablet width"
+
+### Notes:
+- Server was running on port 8007 for fresh CSS testing
+- The responsive design properly hides sidebar, adjusts main panel width, and stacks sample buttons at tablet widths
+- All modals (Settings, Knowledge Base Management) display correctly at 768px
+
+## Session - January 26, 2026 (Regression Testing Agent - Feature #38)
+
+### Regression Test: Feature #38 - Scraper stats show correct counts
+
+**Test Result: PASSED - No regression found**
+
+#### Verification Steps:
+1. ✅ Complete a scrape operation - Last scrape at 2026-01-26T06:41:50
+2. ✅ Call GET /api/scraper/stats - Successfully called at http://localhost:8005/api/scraper/stats
+3. ✅ Verify total_pages count is present - `total_pages: 5`
+4. ✅ Verify total_articles count is accurate - `total_articles: 5`
+5. ✅ Verify last_full_scrape timestamp is recent - `2026-01-26T06:41:50.623034`
+6. ✅ Confirm stats display correctly in UI - Modal shows 'Pages scraped: 5' and 'Last updated: 1/26/2026 6:41:50 AM'
+
+#### API Response (port 8005):
+```json
+{"total_pages": 5, "total_articles": 5, "last_full_scrape": "2026-01-26T06:41:50.623034", "last_partial_scrape": null, "scrape_duration": 1}
+```
+
+#### Screenshots:
+- regression_feature38_stats_display.png
+- regression_feature38_stats_verified.png
+
+#### Console Errors: None (only missing favicon.ico - unrelated)
+
+#### Notes:
+- Old server instances on ports 8002-8004 were serving cached code without total_articles field
+- Fresh server on port 8005 correctly returns all expected fields including total_articles
+- This is a server caching/restart issue, not a code regression
+- The source code is correct and the feature works properly with a fresh server instance
+
+[Testing] Feature #38 verified - still passing
+
+
+## Session - January 26, 2026 (Agent working on Feature #20)
+
+### Feature #20: "History persists after page refresh"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify question history is stored in database and survives refresh
+
+#### Verification Steps:
+1. ✅ Submit a question with unique text - "TEST_PERSIST_98765_REFRESH_CHECK"
+2. ✅ Wait for answer - AI response received with full answer and pro tips
+3. ✅ Note the question in history - Question visible in History sidebar (highlighted green)
+4. ✅ Refresh the page completely - Navigated to http://localhost:8003 again
+5. ✅ Verify the same question appears in history - "TEST_PERSIST_98765_REFRESH_CHECK" still in sidebar
+6. ✅ Confirm answer is still accessible - Clicked history item, cached answer displayed immediately
+
+#### Technical Verification:
+- Server running on port 8003 with full API support
+- `/api/questions` endpoint confirmed question stored: `{"id":1,"question_text":"TEST_PERSIST_98765_REFRESH_CHECK","created_at":"2026-01-26T06:46:23.113121"}`
+- After page refresh, `/api/questions` returns same data (proves SQLite persistence)
+- `/api/questions/1` returns cached answer when history item clicked
+- All network requests return HTTP 200 OK
+
+#### Network Requests After Refresh:
+```
+[GET] /api/settings => [200] OK
+[GET] /api/questions => [200] OK
+[GET] /api/scraper/stats => [200] OK
+[GET] /api/models => [200] OK
+[GET] /api/questions/1 => [200] OK
+```
+
+#### Screenshots Captured:
+- feature20_initial_empty_history.png (empty history after clearing)
+- feature20_question_entered.png (unique question typed)
+- feature20_answer_with_history.png (answer received, question in history)
+- feature20_after_refresh_history_persists.png (question still in history after full page refresh)
+- feature20_cached_answer_accessible.png (cached answer displayed when clicking history item)
+
+#### Console Errors: None
+
+### Current Status:
+- Features passing: 13/64 (~20.3%)
+- Feature #20: History persists after page refresh - PASSED
+
+### Git Commit:
+- Committing with screenshots and progress notes
