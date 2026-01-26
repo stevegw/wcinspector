@@ -564,6 +564,53 @@ async def list_models():
         return {"models": [], "status": "error", "message": str(e)}
 
 
+# ============== Error Logging API Endpoints ==============
+
+@app.get("/api/logs")
+async def get_error_logs(limit: int = 50):
+    """Get recent error logs"""
+    from database import SessionLocal, ErrorLog
+
+    db = SessionLocal()
+    try:
+        logs = db.query(ErrorLog).order_by(ErrorLog.created_at.desc()).limit(limit).all()
+
+        return {
+            "logs": [
+                {
+                    "id": log.id,
+                    "error_type": log.error_type,
+                    "message": log.message,
+                    "stack_trace": log.stack_trace,
+                    "created_at": log.created_at.isoformat() if log.created_at else None
+                }
+                for log in logs
+            ],
+            "count": len(logs)
+        }
+    finally:
+        db.close()
+
+
+def log_error(error_type: str, message: str, stack_trace: str = None):
+    """Helper function to log an error to the database"""
+    from database import SessionLocal, ErrorLog
+
+    db = SessionLocal()
+    try:
+        error_log = ErrorLog(
+            error_type=error_type,
+            message=message,
+            stack_trace=stack_trace
+        )
+        db.add(error_log)
+        db.commit()
+    except Exception as e:
+        print(f"Failed to log error: {e}")
+    finally:
+        db.close()
+
+
 # Startup event
 @app.on_event("startup")
 async def startup_event():

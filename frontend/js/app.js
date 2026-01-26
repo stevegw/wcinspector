@@ -90,6 +90,9 @@ let currentSources = [];
 // Confirm callback
 let confirmCallback = null;
 
+// Flag to prevent double submission
+let isSubmitting = false;
+
 // Initialize Application
 document.addEventListener('DOMContentLoaded', init);
 
@@ -199,7 +202,7 @@ function setupEventListeners() {
     elements.questionInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            elements.questionForm.dispatchEvent(new Event('submit'));
+            elements.questionForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
         }
     });
 
@@ -300,6 +303,11 @@ async function toggleTheme() {
 async function handleQuestionSubmit(e) {
     e.preventDefault();
 
+    // Prevent double submission
+    if (isSubmitting) {
+        return;
+    }
+
     const question = elements.questionInput.value.trim();
     if (!question) {
         showToast('Please enter a question', 'error');
@@ -307,6 +315,9 @@ async function handleQuestionSubmit(e) {
         elements.questionInput.focus();
         return;
     }
+
+    // Set submission flag immediately to prevent double-clicks
+    isSubmitting = true;
 
     // Clear error state on successful validation
     elements.questionInput.classList.remove('input-error');
@@ -327,6 +338,9 @@ async function handleQuestionSubmit(e) {
         elements.questionInput.value = '';
     } catch (error) {
         showError(error.message);
+    } finally {
+        // Reset submission flag regardless of success or failure
+        isSubmitting = false;
     }
 }
 

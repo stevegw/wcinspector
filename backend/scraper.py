@@ -114,8 +114,29 @@ def find_links(html: str, base_url: str) -> list:
     return list(set(links))
 
 
+def log_scraper_error(error_type: str, message: str, stack_trace: str = None):
+    """Log a scraper error to the database"""
+    from database import SessionLocal, ErrorLog
+
+    db = SessionLocal()
+    try:
+        error_log = ErrorLog(
+            error_type=error_type,
+            message=message,
+            stack_trace=stack_trace
+        )
+        db.add(error_log)
+        db.commit()
+    except Exception as e:
+        print(f"Failed to log scraper error: {e}")
+    finally:
+        db.close()
+
+
 async def scrape_page(client: httpx.AsyncClient, url: str) -> Optional[dict]:
     """Scrape a single page"""
+    import traceback
+
     try:
         response = await client.get(url, timeout=30.0)
         if response.status_code == 200:
@@ -133,8 +154,16 @@ async def scrape_page(client: httpx.AsyncClient, url: str) -> Optional[dict]:
                 "content_hash": content_hash(content),
                 "links": find_links(html, url)
             }
+        else:
+            # Log non-200 HTTP status codes as errors
+            error_msg = f"HTTP {response.status_code} for URL: {url}"
+            scraper_state["errors"].append(error_msg)
+            log_scraper_error("scraper_http_error", error_msg)
     except Exception as e:
-        scraper_state["errors"].append(f"Error scraping {url}: {str(e)}")
+        error_msg = f"Error scraping {url}: {str(e)}"
+        stack = traceback.format_exc()
+        scraper_state["errors"].append(error_msg)
+        log_scraper_error("scraper_exception", error_msg, stack)
 
     return None
 

@@ -1448,3 +1448,50 @@ Verify progress bar updates during scrape operation
 
 ### Git Commit:
 - Committed with message: "Verify Feature #37: Scraper progress indicator shows during scraping"
+[Testing] 2026-01-26 14:15:25 Feature #38 regression test - PASSED
+  - Scraper stats show correct counts
+  - API: GET /api/scraper/stats returns total_pages=5, total_articles=5, last_full_scrape=2026-01-26T21:10:39
+  - UI Modal: Pages scraped: 5, Last updated: 26/01/2026 21:10:39
+  - UI Footer: Knowledge base: 5 pages
+  - No console errors
+
+## Session - January 26, 2026 (Agent working on Feature #51)
+
+### Feature #51: "Input field clears after submission"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify clear input button and auto-clear work
+
+#### Verification Steps:
+1. ✅ Enter a question in input field - "TEST_CLEAR_51_UNIQUE_QUESTION"
+2. ✅ Click clear input button - Clicked the ✕ button
+3. ✅ Verify input is empty - Input field shows placeholder text only
+4. ✅ Enter another question - "TEST_AUTOCLEAR_51_SUBMIT"
+5. ✅ Submit it successfully - Clicked "Ask" button, received AI response
+6. ✅ Verify input is cleared after submission - Input field automatically cleared to placeholder
+
+#### Technical Implementation Verified:
+- Line 122-123 in app.js: Clear button click handler (`elements.questionInput.value = ''`)
+- Line 338 in app.js: Auto-clear after successful submission (`elements.questionInput.value = ''`)
+
+#### Screenshots Captured:
+- feature51_question_entered.png (first question entered)
+- feature51_input_cleared_by_button.png (after clicking clear button)
+- feature51_second_question_entered.png (second question entered for submission test)
+- feature51_input_cleared_after_submit.png (input auto-cleared after successful submission)
+
+#### Console Errors: None
+
+#### Network Requests:
+- POST /api/ask => 200 OK
+- GET /api/questions => 200 OK
+- All API calls successful
+
+### Current Status:
+- Features passing: 22/64 (~34.4%)
+- Feature #51: Input field clears after submission - PASSED
+
+### Git Commit:
+- Committed with message: "Verify Feature #51: Input field clears after submission"
