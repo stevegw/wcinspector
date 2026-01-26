@@ -635,6 +635,53 @@ Verify GET /api/scraper/stats returns accurate statistics
 
 [Testing] Feature #2 verified - still passing
 
+## Session 9 - January 25, 2025 (Agent working on Feature #17)
+
+### Feature #17: "User can submit question and receive answer"
+
+**Test Result: PASSED**
+
+#### Description:
+Complete end-to-end flow of asking a question and receiving AI response
+
+#### Verification Steps:
+1. ✅ Navigate to application - http://localhost:8000 loaded successfully
+2. ✅ Enter a valid question: 'What is Windchill?' - Text entered in input field
+3. ✅ Click submit button - Send button clicked successfully
+4. ✅ Verify loading indicator appears - "Thinking..." message displayed, button disabled
+5. ✅ Wait for response - Response received within ~5 seconds
+6. ✅ Verify answer text is displayed - Comprehensive PLM explanation shown
+7. ✅ Confirm answer relates to the question - Answer correctly explains Windchill as PLM system
+8. ✅ Verify pro tips section appears - Buttons for "Tell me more about lifecycle/part/document"
+9. ✅ Verify source links section is available - "View 8 sources" with PTC documentation links
+
+#### Key Findings:
+- The application on port 8000 ("Windchill Investigator") has full Q&A functionality
+- RAG pipeline works end-to-end with Ollama (llama3:8b model)
+- ChromaDB vector store has 4,765 indexed chunks
+- Sources show relevance percentages (20%, 19%, 12%, etc.)
+- Question added to History sidebar after submission
+- Pro tips provide contextual follow-up suggestions
+
+#### Screenshots Captured:
+- feature17_initial_load.png - Application before submitting question
+- feature17_question_entered.png - Question typed in input field
+- feature17_loading_state.png - Loading indicator during AI processing
+- feature17_answer_displayed.png - Full answer with content
+- feature17_sources_expanded.png - Pro tips and source links visible
+- feature17_full_page.png - Complete page view
+
+#### Console Errors: None
+
+#### Notes:
+- Port 8000 runs "Windchill Investigator" with working /api/ask endpoint
+- Port 8001/8002 run "WCInspector" with different/incomplete API endpoints
+- The main Q&A functionality is fully operational on port 8000
+
+### Current Status:
+- Features passing: 8/64 (~12.5%)
+- Feature #17: User can submit question and receive answer - PASSED
+
 ## Session 8 - January 26, 2026 (Agent working on Feature #36 - Re-verification)
 
 ### Feature #36: "Scraper can be started from UI"
