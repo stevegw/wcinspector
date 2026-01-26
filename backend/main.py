@@ -367,10 +367,13 @@ async def get_scraper_stats():
     try:
         stats = db.query(ScrapeStats).first()
         total_pages = db.query(ScrapedPage).count()
+        # Count articles (pages with actual content)
+        total_articles = db.query(ScrapedPage).filter(ScrapedPage.content != None, ScrapedPage.content != "").count()
 
         if stats:
             return {
                 "total_pages": total_pages,
+                "total_articles": total_articles,
                 "last_full_scrape": stats.last_full_scrape.isoformat() if stats.last_full_scrape else None,
                 "last_partial_scrape": stats.last_partial_scrape.isoformat() if stats.last_partial_scrape else None,
                 "scrape_duration": stats.scrape_duration
@@ -378,6 +381,7 @@ async def get_scraper_stats():
         else:
             return {
                 "total_pages": total_pages,
+                "total_articles": total_articles,
                 "last_full_scrape": None,
                 "last_partial_scrape": None,
                 "scrape_duration": None

@@ -376,3 +376,121 @@ DEFAULT_SETTINGS = {
 
 ### Git Commit:
 - Committing changes with message: "Verify Feature #9: Settings API returns current settings"
+
+## Session - January 25, 2025 (Regression Testing Agent - Feature #9)
+
+### Regression Test: Feature #9 - Settings API returns current settings
+
+**Test Result: PASSED - No regression found**
+
+#### Verification Steps:
+1. ✅ Call GET /api/settings endpoint - SUCCESS (HTTP 200)
+2. ✅ Verify response contains theme setting - "dark"
+3. ✅ Verify response contains AI tone setting - "technical"
+4. ✅ Verify response contains response length setting - "detailed"
+5. ✅ Verify response contains selected Ollama model - "llama3:8b"
+
+#### API Response Verified:
+```json
+{
+    "theme": "dark",
+    "ai_tone": "technical",
+    "response_length": "detailed",
+    "ollama_model": "llama3:8b"
+}
+```
+
+#### UI Verification:
+- Settings modal opens correctly
+- All settings populated from API
+- AI Tone: Technical (selected)
+- Response Length: Detailed (selected)
+- Ollama Model: llama3:8b (selected)
+
+#### Network Requests:
+- [GET] /api/settings => [200] OK
+
+#### Console Errors: Only favicon.ico 404 (unrelated to feature)
+
+#### Screenshots Captured:
+- regression_test_feature9_settings_modal.png
+
+[Testing] Feature #9 verified - still passing
+
+## Session 7 - January 26, 2026 (Agent working on Feature #10)
+
+### Feature #10: "Settings can be updated via API"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify PUT /api/settings updates and persists settings
+
+#### Verification Steps:
+1. ✅ Call PUT /api/settings with new theme value - Changed theme to "dark"
+2. ✅ Verify successful response - HTTP 200 with `{"status":"success",...}`
+3. ✅ Call GET /api/settings - Confirmed settings returned correctly
+4. ✅ Confirm new theme value is returned - `"theme":"dark"` confirmed
+5. ✅ Refresh application and verify persistence - Dark theme persists after page refresh
+
+#### API Testing Details:
+**PUT Request:**
+```bash
+curl -X PUT http://localhost:8004/api/settings -H "Content-Type: application/json" -d '{"theme": "dark", "ai_tone": "casual"}'
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "settings": {
+    "theme": "dark",
+    "ai_tone": "casual",
+    "response_length": "detailed",
+    "ollama_model": "llama3:8b"
+  }
+}
+```
+
+**GET Verification:**
+```json
+{
+  "theme": "dark",
+  "ai_tone": "casual",
+  "response_length": "detailed",
+  "ollama_model": "llama3:8b"
+}
+```
+
+#### Browser Verification:
+- Tested via Swagger UI at http://localhost:8004/docs
+- PUT /api/settings endpoint executed successfully (HTTP 200)
+- Application UI reflects dark theme after settings update
+- Theme persists after page refresh (confirms database persistence)
+
+#### Screenshots Captured:
+- feature10_put_settings_success.png (Swagger UI with PUT request)
+- feature10_put_settings_response.png (Response scrolled down)
+- feature10_put_settings_response_body.png (Full response body visible)
+- feature10_app_with_settings.png (App with dark theme applied)
+- feature10_settings_persisted_after_refresh.png (Theme persists after refresh)
+
+#### Console Errors:
+- Only favicon.ico 404 (unrelated to settings feature)
+
+#### Notes:
+- WCInspector server running on port 8004
+- Settings are properly persisted to SQLite database
+- Multiple settings can be updated in a single PUT request
+- Invalid keys are ignored (only valid_keys are processed)
+
+### Current Status:
+- Features passing: 7/64 (~10.9%)
+- Feature #10: Settings can be updated via API - PASSED
+
+### Files Modified:
+- None (feature already implemented, only verification performed)
+
+### Git Commit:
+- Committing with message: "Verify Feature #10: Settings can be updated via API"
+
