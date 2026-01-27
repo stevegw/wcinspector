@@ -202,7 +202,7 @@ function setupEventListeners() {
     elements.questionInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            elements.questionForm.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+            handleQuestionSubmit(e);
         }
     });
 
