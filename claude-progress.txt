@@ -1658,3 +1658,52 @@ Verify scraper errors are recorded in error_logs table
 ### Current Status:
 - Features passing: 23/64 (~35.9%)
 - Feature #41: Error logged when scraper fails - PASSED
+[Testing] 2026-01-26 17:58:27 Feature #17 regression test - PASSED
+  - User can submit question and receive answer (end-to-end flow)
+  - Verified: Question input works ('What is Windchill?')
+  - Verified: Submit button triggers loading indicator ('Thinking...')
+  - Verified: AI response displayed with relevant answer
+  - Verified: Pro Tips section shows with visually distinct callout box
+  - Verified: Source links dialog available via 'More Sources' button
+  - API: POST /api/ask => 200 OK
+  - No console errors
+
+## Session - January 27, 2026 (Agent working on Feature #45)
+
+### Feature #45: "Reset knowledge base requires confirmation"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify destructive reset operation has confirmation
+
+#### Verification Steps:
+1. ✅ Navigate to data management - Clicked "Manage" button in footer, Knowledge Base Management modal opened
+2. ✅ Click reset/clean knowledge base button - Clicked "Reset Knowledge Base" red button
+3. ✅ Verify confirmation dialog appears - Modal appeared with title "Reset Knowledge Base"
+4. ✅ Read warning message - "Are you sure you want to reset the knowledge base? All scraped data will be deleted."
+5. ✅ Click cancel - Clicked Cancel button, dialog closed
+6. ✅ Verify data is unchanged - API confirms 5 pages still present, modal shows same stats
+
+#### Technical Implementation:
+- Reset button implemented in `frontend/index.html` (line 202): `<button id="reset-kb-btn" class="btn btn-danger">Reset Knowledge Base</button>`
+- Click handler in `frontend/js/app.js` (lines 164-170): calls `showConfirm()` with title, warning message, and callback
+- `showConfirm()` function (lines 595-600): displays confirmation modal with title, message, and action buttons
+- Confirmation modal in `frontend/index.html` (lines 209-222): contains Cancel and Confirm buttons
+- Cancel button closes dialog without executing the reset callback
+- API endpoint `POST /api/reset` in `backend/main.py` (lines 341-354) would be called only if Confirm clicked
+
+#### Screenshots Captured:
+- feature45_data_management_modal.png (Knowledge Base Management modal with stats)
+- feature45_confirmation_dialog.png (Confirmation dialog with warning message)
+- feature45_data_unchanged_after_cancel.png (Modal showing data unchanged after cancel)
+
+#### Console Errors: None
+
+#### Data Verification:
+- Before reset attempt: API /api/scraper/stats returned total_pages=5
+- After cancel: API /api/scraper/stats returned total_pages=5 (unchanged)
+
+### Current Status:
+- Features passing: 26/64 (~40.6%)
+- Feature #45: Reset knowledge base requires confirmation - PASSED
