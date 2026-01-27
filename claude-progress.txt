@@ -1594,3 +1594,67 @@ Verify the copy button copies answer text
 - Features passing: 23/64 (~35.9%)
 - Feature #23: Copy answer button copies text to clipboard - PASSED
 
+[Testing] 2026-01-26 17:55:44 Feature #15 regression test - PASSED
+  - Empty question input shows validation error
+  - Verified: Click Ask with empty input shows 'Please enter a question' toast
+  - Verified: Input field shows red border error state
+  - Verified: Form does not submit (no POST /api/ask)
+  - Verified: Enter key also triggers validation
+  - No console errors
+[Testing] 2026-01-26 17:55:55 Feature #15 regression test - PASSED
+  - Empty question input shows validation error
+  - Verified: Click Ask with empty input shows 'Please enter a question' toast
+  - Verified: Input field shows red border error state
+  - Verified: Form does not submit (no POST /api/ask)
+  - Verified: Enter key also triggers validation
+  - No console errors
+
+## Session - January 27, 2026 (Agent working on Feature #41)
+
+### Feature #41: "Error logged when scraper fails"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify scraper errors are recorded in error_logs table
+
+#### Verification Steps:
+1. ✅ Trigger a scraper error (invalid URL or network issue) - Started full scrape, received "multiple Transfer-Encoding headers" network error from PTC website
+2. ✅ Call GET /api/logs endpoint - Called `curl -s http://localhost:8002/api/logs` successfully
+3. ✅ Verify error entry exists in logs - Error with id=1 exists in logs
+4. ✅ Confirm error type and message are captured:
+   - error_type: "scraper_exception"
+   - message: "Error scraping https://support.ptc.com/help/windchill/r13.1.2.0/en/: multiple Transfer-Encoding headers"
+   - stack_trace: Full Python traceback showing the httpx/httpcore error chain
+5. ✅ Verify timestamp is recorded - created_at: "2026-01-27T00:55:45.427587"
+
+#### Technical Implementation:
+- Error logging implemented in backend/scraper.py via `log_scraper_error()` function (lines 117-133)
+- Logs HTTP errors as "scraper_http_error" (non-200 status codes)
+- Logs exceptions as "scraper_exception" (network issues, timeouts, etc.)
+- API endpoint GET /api/logs defined in backend/main.py (lines 569-592)
+- ErrorLog model in backend/database.py stores: id, error_type, message, stack_trace, created_at
+
+#### API Response Verified:
+```json
+{
+  "logs": [{
+    "id": 1,
+    "error_type": "scraper_exception",
+    "message": "Error scraping https://support.ptc.com/help/windchill/r13.1.2.0/en/: multiple Transfer-Encoding headers",
+    "stack_trace": "Traceback (most recent call last):...",
+    "created_at": "2026-01-27T00:55:45.427587"
+  }],
+  "count": 1
+}
+```
+
+#### Screenshots Captured:
+- feature41_scraper_error_triggered.png (Manage modal after triggering scrape)
+- feature41_final_verification.png (Final page state)
+
+#### Console Errors: None
+
+### Current Status:
+- Features passing: 23/64 (~35.9%)
+- Feature #41: Error logged when scraper fails - PASSED
