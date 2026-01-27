@@ -1793,3 +1793,41 @@ Verify POST /api/settings/reset restores default values
 - Features passing: 27/64 (~42.2%)
 - Feature #11: Settings reset to defaults works - PASSED
 
+## Session - January 27, 2026 (Agent working on Feature #14)
+
+### Feature #14: "Clicking sample question populates input"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify clicking an example question fills the input field
+
+#### Verification Steps:
+1. Navigate to application - http://localhost:8000 loaded
+2. Identify a sample question - Four sample questions displayed
+3. Click on the sample question - Clicked "What is Windchill PDMLink?" button
+4. Verify input field is populated with question text - Input value changed to "What is Windchill PDMLink?"
+5. Confirm cursor is in input field - document.activeElement === input returned true (inputIsFocused: true)
+6. Verify submit button is ready to click - submitBtnDisabled: false, Ask button enabled
+
+#### Additional Tests:
+- Tested second sample question "How to configure Windchill workflows?" - also populated input correctly
+- Submit button remains enabled after clicking sample question
+- Focus correctly moves to input field after clicking sample question
+
+#### Technical Implementation:
+- Sample question buttons have class ".sample-btn" (lines 68-71 in index.html)
+- Event listeners attached in app.js (lines 133-139)
+
+#### Screenshots Captured:
+- feature14_initial_state.png (initial page load with sample questions visible)
+- feature14_input_populated.png (input populated with "What is Windchill PDMLink?")
+- feature14_second_sample_question.png (input populated with "How to configure Windchill workflows?")
+
+#### Console Errors:
+- Unrelated error about /api/topics endpoint (not implemented) - not related to this feature
+
+### Current Status:
+- Features passing: 27/64 (~42.2%)
+- Feature #14: Clicking sample question populates input - PASSED
+
