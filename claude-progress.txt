@@ -2229,3 +2229,88 @@ Verify clicking source links opens new browser tab
 - More button displays the sources modal
 - Empty state handled gracefully ("No source links available")
 - Security best practices followed with rel="noopener noreferrer"
+
+## Session - January 27, 2026 (Agent working on Feature #29)
+
+### Feature #29: "Clear history requires confirmation"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify destructive action has confirmation prompt
+
+#### Verification Steps:
+1. ✅ Have at least one item in history - Started with 37 history items
+2. ✅ Click 'Clear all history' button - Clear button clicked
+3. ✅ Verify confirmation dialog appears - Modal appeared with title and message
+4. ✅ Click cancel - Cancel button clicked
+5. ✅ Verify history is unchanged - Still 37 items after cancel
+6. ✅ Click clear again and confirm - OK button clicked
+7. ✅ Verify history is now empty - 0 items, "No questions yet" message shown
+
+#### Technical Implementation Verified:
+- **HTML**:
+  - Clear history button: `<button id="clear-history-btn">Clear</button>`
+  - Confirmation modal: `<div id="confirm-modal">`
+  - Modal elements: confirm-title, confirm-message, confirm-cancel, confirm-ok
+
+- **JavaScript** (app.js:150-156, 488-499, 671-676):
+  - Clear history button click handler (lines 150-156):
+    - Calls `showConfirm()` with title, message, and callback
+    - Title: "Clear History"
+    - Message: "Are you sure you want to clear all question history? This cannot be undone."
+    - Callback: `clearHistory` function
+
+  - `showConfirm()` function (lines 671-676):
+    - Sets confirmation modal title and message
+    - Stores callback in `confirmCallback` variable
+    - Shows modal
+
+  - Cancel button handler (lines 195-198):
+    - Hides modal
+    - Clears confirmCallback (prevents action)
+
+  - OK button handler (lines 199-205):
+    - Hides modal
+    - Executes confirmCallback if set
+
+  - `clearHistory()` function (lines 488-499):
+    - Makes DELETE /api/questions
+    - Reloads history via `loadHistory()`
+    - Clears currentQuestionId
+    - Hides results card, shows sample questions
+    - Shows success toast: "History cleared"
+
+#### Verification Results:
+- ✅ Initial history exists (37 items)
+- ✅ Clear button clickable
+- ✅ Confirmation dialog appears
+- ✅ Dialog has clear title and message
+- ✅ Cancel closes dialog
+- ✅ Cancel preserves history (37 items unchanged)
+- ✅ Confirm clears history (0 items remaining)
+- ✅ Success toast shown ("History cleared")
+
+#### Screenshots Captured:
+- feature29_initial_history.png (37 history items before clear)
+- feature29_confirmation_dialog.png (confirmation modal with warning)
+- feature29_history_unchanged.png (37 items still present after cancel)
+- feature29_history_cleared.png (empty history with "No questions yet")
+
+#### Console Errors: None
+
+#### Network Requests:
+- DELETE /api/questions => 200 OK (clears all questions from database)
+- GET /api/questions => 200 OK (reloads empty history)
+
+### Current Status:
+- Features passing: 35/64 (54.7%)
+- Feature #29: Clear history requires confirmation - PASSED
+
+### Notes:
+- Confirmation dialog prevents accidental data loss
+- Clear warning message: "This cannot be undone"
+- Cancel button properly prevents action
+- Callback pattern allows reusable confirmation dialog
+- Success feedback via toast notification
+- History UI updates to show "No questions yet" empty state
