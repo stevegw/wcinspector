@@ -1903,3 +1903,63 @@ Verify clicking theme toggle updates UI and persists preference
 - Settings API correctly persists theme preference to database
 - CSS custom properties system allows smooth theme switching
 - Icon updates provide visual feedback for current theme state
+
+## Session - January 27, 2026 (Agent working on Feature #16)
+
+### Feature #16: "Whitespace-only input shows validation error"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify input with only spaces is rejected
+
+#### Verification Steps:
+1. ✅ Navigate to application - Page loaded successfully
+2. ✅ Enter only whitespace in input field - Tested 4 different whitespace patterns:
+   - Multiple spaces: "   "
+   - Tab character: "\t"
+   - Newline: "\n"
+   - Mixed whitespace: "  \t  \n  "
+3. ✅ Click submit button - Clicked for each whitespace pattern
+4. ✅ Verify validation error appears - Toast message "Please enter a question" shown for all tests
+5. ✅ Confirm input is trimmed and validated - Verified .trim() removes surrounding whitespace
+
+#### Technical Implementation Verified:
+- **JavaScript** (app.js:320-326):
+  - Line 320: `const question = elements.questionInput.value.trim();`
+  - Line 321-326: Validation logic checks if trimmed value is empty
+  - Applies 'input-error' class for visual feedback
+  - Shows toast: "Please enter a question"
+  - Prevents form submission
+  - Focuses the input field
+
+#### Verification Results:
+- ✅ Whitespace-only input rejected (all 4 patterns)
+- ✅ Validation error message shown ("Please enter a question")
+- ✅ Input error class applied (red border/shadow)
+- ✅ Form submission blocked (no API call made)
+- ✅ Input trimming works (surrounding whitespace removed from valid input)
+
+#### Screenshots Captured:
+- feature16_initial.png (initial page state)
+- feature16_whitespace_test_1.png (spaces validation)
+- feature16_whitespace_test_2.png (tab validation)
+- feature16_whitespace_test_3.png (newline validation)
+- feature16_whitespace_test_4.png (mixed whitespace validation)
+- feature16_valid_input_with_whitespace.png (valid input with surrounding spaces)
+
+#### Console Errors: None
+
+#### Network Requests:
+- No POST /api/ask request made when validation failed (correct behavior)
+- Form submission properly blocked by validation
+
+### Current Status:
+- Features passing: 30/64 (46.9%)
+- Feature #16: Whitespace-only input shows validation error - PASSED
+
+### Notes:
+- Same validation logic as Feature #15 (empty input validation)
+- The .trim() method handles all whitespace characters (spaces, tabs, newlines)
+- Error state provides good UX with visual feedback and clear message
+- Validation runs before API call, preventing unnecessary requests
