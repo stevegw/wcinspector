@@ -1707,3 +1707,89 @@ Verify destructive reset operation has confirmation
 ### Current Status:
 - Features passing: 26/64 (~40.6%)
 - Feature #45: Reset knowledge base requires confirmation - PASSED
+[Testing] 2026-01-26 18:00:45 Feature #6 regression test - PASSED
+  - Layout renders correctly at desktop width (1920px)
+  - Verified: Three-column layout (sidebar 280px, content 852px, space on right)
+  - Verified: No horizontal scrollbar (document width = viewport width = 1920px)
+  - Verified: All elements properly sized (header 60px, footer 48px, question card, sample questions)
+  - Verified: Spacing and padding consistent (24px margins, 16-24px padding on cards)
+  - No console errors
+[Testing] 2026-01-27 05:26:43 Feature #2 regression test - PASSED
+  - Health check endpoint returns Ollama status
+  - Verified: GET /api/health returns HTTP 200
+  - Verified: Response contains 'ollama' field with value 'connected'
+  - Verified: Response contains 'database' field with value 'connected'
+  - Verified: Response is valid JSON with 5 fields
+  - Additional: ollama_models array lists available models
+  - No console errors
+[Testing] 2026-01-27 05:28:46 Feature #4 regression test - PASSED
+  - History sidebar displays correctly
+  - Verified: Sidebar visible on left side with 'History' heading
+  - Verified: Sidebar has scroll capability (overflow-y: auto on history list)
+  - Verified: 'Clear' button present with red danger styling
+  - Verified: Styling matches design system (280px width, light gray bg, proper borders)
+  - Verified: History items clickable with pointer cursor
+  - Verified: Selected item highlighted with green background
+  - Verified: Clicking history item loads cached answer
+  - No console errors
+[Testing] 2026-01-27 05:31:42 Feature #9 regression test - PASSED
+  - Settings API returns current settings
+  - Verified: GET /api/settings returns HTTP 200 with valid JSON
+  - Verified: Response contains 'theme' field (value: 'light')
+  - Verified: Response contains 'ai_tone' field (value: 'technical')
+  - Verified: Response contains 'response_length' field (value: 'detailed')
+  - Verified: Response contains 'ollama_model' field (value: 'llama3:8b')
+  - Verified: UI Settings dialog correctly reflects API values
+  - No console errors
+
+## Session - January 27, 2026 (Agent working on Feature #11)
+
+### Feature #11: "Settings reset to defaults works"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify POST /api/settings/reset restores default values
+
+#### Verification Steps:
+1. ✅ Change multiple settings via PUT /api/settings
+   - Changed: theme=dark, ai_tone=casual, response_length=brief, ollama_model=mistral:latest
+   - API confirmed changes: {"theme":"dark","ai_tone":"casual","response_length":"brief","ollama_model":"mistral:latest"}
+2. ✅ Call POST /api/settings/reset
+   - Response: {"status":"success","message":"Settings reset to defaults","settings":{...}}
+3. ✅ Call GET /api/settings
+   - Response: {"theme":"light","ai_tone":"technical","response_length":"detailed","ollama_model":"llama3:8b"}
+4. ✅ Verify all settings are at default values
+   - theme: "light" (default)
+   - ai_tone: "technical" (default)
+   - response_length: "detailed" (default)
+   - ollama_model: "llama3:8b" (default)
+5. ✅ Confirm theme is default (light) - Verified
+6. ✅ Confirm tone is default (technical) - Verified
+
+#### UI Verification:
+- Opened Settings modal, changed values via dropdowns
+- Clicked Save, toast "Settings saved successfully" displayed
+- Reopened Settings modal, clicked "Reset to Defaults"
+- Toast "Settings reset to defaults" displayed
+- Dropdowns updated to show default values (Technical, Detailed, llama3:8b)
+- API confirmed reset: all values at defaults
+
+#### Technical Implementation:
+- DEFAULT_SETTINGS defined in backend/database.py (lines 104-109)
+- Reset endpoint POST /api/settings/reset in backend/main.py (lines 560-585)
+- Frontend reset button calls API via fetch() in frontend/js/app.js
+- Toast notifications provide user feedback
+
+#### Screenshots Captured:
+- feature11_settings_at_defaults.png (initial state with defaults)
+- feature11_settings_changed.png (after saving non-default values)
+- feature11_before_reset.png (non-default values in Settings modal)
+- feature11_after_reset.png (after clicking Reset to Defaults)
+
+#### Console Errors: None
+
+### Current Status:
+- Features passing: 27/64 (~42.2%)
+- Feature #11: Settings reset to defaults works - PASSED
+
