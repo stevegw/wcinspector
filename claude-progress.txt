@@ -1963,3 +1963,71 @@ Verify input with only spaces is rejected
 - The .trim() method handles all whitespace characters (spaces, tabs, newlines)
 - Error state provides good UX with visual feedback and clear message
 - Validation runs before API call, preventing unnecessary requests
+
+## Session - January 27, 2026 (Agent working on Feature #18)
+
+### Feature #18: "Loading indicator shows during AI processing"
+
+**Test Result: PASSED**
+
+#### Description:
+Verify visual feedback while waiting for AI response
+
+#### Verification Steps:
+1. ✅ Enter a question in input field - Entered "TEST_LOADING_INDICATOR_18"
+2. ✅ Click submit button - Submitted successfully
+3. ✅ Verify loading spinner or indicator appears immediately - Loading state appeared within 50ms
+4. ✅ Verify submit button becomes disabled - Button disabled during processing
+5. ✅ Confirm loading indicator disappears when answer arrives - Loading hidden when response received
+
+#### Technical Implementation Verified:
+- **HTML** (index.html:88-91):
+  - Loading state div with id="loading-state"
+  - Contains spinner-large element for animation
+  - Contains "Thinking..." text paragraph
+  - Hidden by default with .hidden class
+
+- **JavaScript** (app.js:382-408):
+  - `showLoading()` function (lines 382-389):
+    - Hides sample questions
+    - Shows results card
+    - Shows loading state (removes .hidden)
+    - Hides answer and error displays
+    - **Disables submit button** (line 388)
+  - `displayAnswer()` function (lines 391-408):
+    - Hides loading state (adds .hidden back)
+    - Shows answer display
+    - **Re-enables submit button** (line 395)
+
+#### Verification Results:
+- ✅ Loading not visible initially
+- ✅ Submit enabled initially
+- ✅ Loading appears on submit (immediately)
+- ✅ Submit disabled during loading
+- ✅ Loading text "Thinking..." shown
+- ✅ Response completes (answer or error state)
+- ✅ Loading hidden after response
+- ✅ Submit re-enabled after response
+
+#### Screenshots Captured:
+- feature18_question_entered.png (question ready to submit)
+- feature18_loading_shown.png (loading state with spinner and "Thinking..." text)
+- feature18_answer_displayed.png (response completed, loading hidden)
+
+#### Console Errors: None
+
+#### Network Requests:
+- POST /api/ask called when submit clicked
+- Loading appears before API call completes
+- Loading disappears when response received (whether success or error)
+
+### Current Status:
+- Features passing: 31/64 (48.4%)
+- Feature #18: Loading indicator shows during AI processing - PASSED
+
+### Notes:
+- Loading state provides excellent UX feedback during AI processing
+- Submit button disabled state prevents double-submission
+- Works correctly for both success and error responses
+- Spinner animation and "Thinking..." text clearly communicate processing state
+- Loading state appears immediately (within 50ms of click)
