@@ -264,6 +264,26 @@ async def run_scrape(db_session, max_pages: int = 100):
     stats.scrape_duration = duration
     db_session.commit()
 
+    # Sync scraped pages to vector store
+    scraper_state["status_text"] = "Indexing documents in vector store..."
+    try:
+        from rag import add_documents_to_vectorstore
+        all_pages = db_session.query(ScrapedPage).all()
+        documents = [
+            {
+                "url": page.url,
+                "title": page.title,
+                "content": page.content,
+                "section": page.section,
+                "topic": page.topic
+            }
+            for page in all_pages if page.content
+        ]
+        await add_documents_to_vectorstore(documents)
+    except Exception as e:
+        print(f"Error syncing to vector store: {e}")
+        scraper_state["errors"].append(f"Vector store sync error: {str(e)}")
+
     # Mark complete
     scraper_state["progress"] = 100
     scraper_state["status_text"] = f"Complete! Scraped {scraper_state['pages_scraped']} pages"

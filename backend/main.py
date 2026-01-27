@@ -102,6 +102,7 @@ from typing import Optional
 
 class AskRequest(BaseModel):
     question: str
+    topic_filter: Optional[str] = None
 
 
 @app.post("/api/ask")
@@ -114,6 +115,8 @@ async def ask_question(request: AskRequest):
     question_text = request.question.strip()
     if not question_text:
         return {"error": "Question cannot be empty"}, 400
+
+    topic_filter = request.topic_filter
 
     db = SessionLocal()
     try:
@@ -130,12 +133,13 @@ async def ask_question(request: AskRequest):
         db.commit()
         db.refresh(question)
 
-        # Process through RAG pipeline
+        # Process through RAG pipeline with optional topic filter
         result = await process_question(
             question=question_text,
             model=model,
             tone=tone,
-            length=length
+            length=length,
+            topic_filter=topic_filter
         )
 
         # Store answer
@@ -157,7 +161,9 @@ async def ask_question(request: AskRequest):
             "answer_text": result["answer_text"],
             "pro_tips": result["pro_tips"],
             "source_links": result["source_links"],
-            "model_used": model
+            "model_used": model,
+            "topics_used": result.get("topics_used", []),
+            "topic_filter_applied": result.get("topic_filter_applied")
         }
 
     finally:
@@ -223,12 +229,18 @@ async def get_question(question_id: int):
         db.close()
 
 
+class RerunRequest(BaseModel):
+    topic_filter: Optional[str] = None
+
+
 @app.post("/api/questions/{question_id}/rerun")
-async def rerun_question(question_id: int):
-    """Re-run a question for a fresh answer"""
+async def rerun_question(question_id: int, request: RerunRequest = None):
+    """Re-run a question for a fresh answer, optionally with topic filter"""
     from database import SessionLocal, Question, Answer, Setting
     from rag import process_question
     from datetime import datetime
+
+    topic_filter = request.topic_filter if request else None
 
     db = SessionLocal()
     try:
@@ -244,12 +256,13 @@ async def rerun_question(question_id: int):
         tone = settings.get("ai_tone", "technical")
         length = settings.get("response_length", "detailed")
 
-        # Process through RAG pipeline again
+        # Process through RAG pipeline again with optional topic filter
         result = await process_question(
             question=question.question_text,
             model=model,
             tone=tone,
-            length=length
+            length=length,
+            topic_filter=topic_filter
         )
 
         # Store new answer
@@ -274,7 +287,9 @@ async def rerun_question(question_id: int):
             "answer_text": result["answer_text"],
             "pro_tips": result["pro_tips"],
             "source_links": result["source_links"],
-            "model_used": model
+            "model_used": model,
+            "topics_used": result.get("topics_used", []),
+            "topic_filter_applied": result.get("topic_filter_applied")
         }
 
     finally:
@@ -356,7 +371,31 @@ async def reset_knowledge_base():
         db.close()
 
 
-# ============== Scraper API Endpoints ==============
+# ============== Topics API Endpoints ==============
+
+@app.get("/api/topics")
+async def get_topics():
+    """Get all available topics from the knowledge base"""
+    from database import SessionLocal, ScrapedPage
+    from sqlalchemy import distinct
+
+    db = SessionLocal()
+    try:
+        # Get all distinct non-null topics
+        topics_query = db.query(distinct(ScrapedPage.topic)).filter(
+            ScrapedPage.topic != None,
+            ScrapedPage.topic != ""
+        ).all()
+
+        topics = sorted([t[0] for t in topics_query if t[0]])
+
+        return {
+            "topics": topics,
+            "count": len(topics)
+        }
+    finally:
+        db.close()
+
 
 @app.get("/api/scraper/stats")
 async def get_scraper_stats():

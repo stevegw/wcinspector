@@ -409,6 +409,58 @@ a:hover { color: var(--accent-hover); }
     min-height: 200px;
 }
 
+/* Topic Filter */
+.topic-filter {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    margin-bottom: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    flex-wrap: wrap;
+}
+
+.topic-filter label {
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.topic-filter select {
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    min-width: 150px;
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.topic-filter select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(139, 197, 63, 0.2);
+}
+
+.topic-filter select:hover {
+    border-color: var(--accent);
+}
+
+.topic-filter-status {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.topic-filter-status.active {
+    color: var(--accent);
+    font-weight: 500;
+    font-style: normal;
+}
+
 .answer-header {
     display: flex;
     justify-content: space-between;

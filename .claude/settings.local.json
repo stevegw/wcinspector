@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python features.py:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python -c:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m playwright:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nVerify Feature #12: Theme toggle switches between light and dark mode\n\n- Verified theme toggle button switches between light and dark themes\n- Confirmed dark theme background color is #1A1A1A\n- Verified theme persists after page refresh via API/database\n- Confirmed icon changes \\(🌙 in light mode, ☀️ in dark mode\\)\n- All 7 verification steps passed\n- Screenshots captured for documentation\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit:*)",
+      "Bash(curl:*)"
+    ]
+  }
+}

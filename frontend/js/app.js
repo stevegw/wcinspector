@@ -26,6 +26,9 @@ const elements = {
     // Results
     sampleQuestions: document.getElementById('sample-questions'),
     resultsCard: document.getElementById('results-card'),
+    topicFilter: document.getElementById('topic-filter'),
+    topicSelect: document.getElementById('topic-select'),
+    topicFilterStatus: document.getElementById('topic-filter-status'),
     loadingState: document.getElementById('loading-state'),
     answerDisplay: document.getElementById('answer-display'),
     answerText: document.getElementById('answer-text'),
@@ -111,6 +114,9 @@ async function init() {
 
     // Load available models
     await loadModels();
+
+    // Load available topics for filtering
+    await loadTopics();
 
     // Setup event listeners
     setupEventListeners();
@@ -210,6 +216,9 @@ function setupEventListeners() {
     elements.questionInput.addEventListener('input', () => {
         elements.questionInput.classList.remove('input-error');
     });
+
+    // Topic filter change - re-run query with new filter
+    elements.topicSelect.addEventListener('change', handleTopicFilterChange);
 }
 
 // API Functions
@@ -326,14 +335,18 @@ async function handleQuestionSubmit(e) {
     showLoading();
 
     try {
+        // Get topic filter if selected
+        const topicFilter = getSelectedTopicFilter();
+
         const data = await apiRequest('/ask', {
             method: 'POST',
-            body: JSON.stringify({ question })
+            body: JSON.stringify({ question, topic_filter: topicFilter })
         });
 
         currentQuestionId = data.question_id;
         currentSources = data.source_links || [];
         displayAnswer(data);
+        updateTopicFilterStatus(data.topic_filter_applied);
         await loadHistory();
         elements.questionInput.value = '';
     } catch (error) {
@@ -350,12 +363,17 @@ async function rerunQuery() {
     showLoading();
 
     try {
+        // Get topic filter if selected
+        const topicFilter = getSelectedTopicFilter();
+
         const data = await apiRequest(`/questions/${currentQuestionId}/rerun`, {
-            method: 'POST'
+            method: 'POST',
+            body: JSON.stringify({ topic_filter: topicFilter })
         });
 
         currentSources = data.source_links || [];
         displayAnswer(data);
+        updateTopicFilterStatus(data.topic_filter_applied);
     } catch (error) {
         showError(error.message);
     }
@@ -584,6 +602,64 @@ async function loadModels() {
     } catch (error) {
         console.error('Failed to load models:', error);
         elements.modelSelect.innerHTML = '<option value="">Unable to load models</option>';
+    }
+}
+
+// Topics Functions
+async function loadTopics() {
+    try {
+        const data = await apiRequest('/topics');
+        if (data.topics && data.topics.length > 0) {
+            // Keep the "All Topics" option and add the rest
+            elements.topicSelect.innerHTML = '<option value="">All Topics</option>' +
+                data.topics.map(topic =>
+                    `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`
+                ).join('');
+        } else {
+            elements.topicSelect.innerHTML = '<option value="">All Topics</option>';
+        }
+    } catch (error) {
+        console.error('Failed to load topics:', error);
+        // Keep default option if topics can't be loaded
+        elements.topicSelect.innerHTML = '<option value="">All Topics</option>';
+    }
+}
+
+function getSelectedTopicFilter() {
+    return elements.topicSelect.value || null;
+}
+
+function updateTopicFilterStatus(topicApplied) {
+    if (topicApplied) {
+        elements.topicFilterStatus.textContent = `Filtered by: ${topicApplied}`;
+        elements.topicFilterStatus.classList.add('active');
+    } else {
+        elements.topicFilterStatus.textContent = 'Showing all topics';
+        elements.topicFilterStatus.classList.remove('active');
+    }
+}
+
+async function handleTopicFilterChange() {
+    // Only re-run if we have a current question
+    if (!currentQuestionId) {
+        return;
+    }
+
+    const topicFilter = getSelectedTopicFilter();
+    showLoading();
+
+    try {
+        const data = await apiRequest(`/questions/${currentQuestionId}/rerun`, {
+            method: 'POST',
+            body: JSON.stringify({ topic_filter: topicFilter })
+        });
+
+        currentSources = data.source_links || [];
+        displayAnswer(data);
+        updateTopicFilterStatus(data.topic_filter_applied);
+        showToast(topicFilter ? `Filtered by: ${topicFilter}` : 'Showing all topics', 'success');
+    } catch (error) {
+        showError(error.message);
     }
 }
 

@@ -74,6 +74,16 @@
 
             <!-- Results Area -->
             <div class="results-card card hidden" id="results-card">
+                <!-- Topic Filter -->
+                <div class="topic-filter" id="topic-filter">
+                    <label for="topic-select">Filter by topic:</label>
+                    <select id="topic-select">
+                        <option value="">All Topics</option>
+                        <!-- Topics will be populated by JavaScript -->
+                    </select>
+                    <span class="topic-filter-status" id="topic-filter-status"></span>
+                </div>
+
                 <!-- Loading State -->
                 <div class="loading-state hidden" id="loading-state">
                     <div class="spinner-large"></div>

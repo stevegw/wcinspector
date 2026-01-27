@@ -78,16 +78,23 @@ async def add_documents_to_vectorstore(documents: List[Dict]) -> int:
     return added
 
 
-async def search_similar_documents(query: str, n_results: int = 5) -> List[Dict]:
-    """Search for documents similar to the query"""
+async def search_similar_documents(query: str, n_results: int = 5, topic_filter: str = None) -> List[Dict]:
+    """Search for documents similar to the query, optionally filtered by topic"""
     if collection is None:
         return []
 
     try:
-        results = collection.query(
-            query_texts=[query],
-            n_results=n_results
-        )
+        # Build query parameters
+        query_params = {
+            "query_texts": [query],
+            "n_results": n_results * 2 if topic_filter else n_results  # Fetch more if filtering
+        }
+
+        # Add topic filter if specified
+        if topic_filter:
+            query_params["where"] = {"topic": topic_filter}
+
+        results = collection.query(**query_params)
 
         documents = []
         if results and results.get("documents"):
@@ -101,7 +108,8 @@ async def search_similar_documents(query: str, n_results: int = 5) -> List[Dict]
                     "topic": metadata.get("topic", "")
                 })
 
-        return documents
+        # Limit results after topic filtering
+        return documents[:n_results]
     except Exception as e:
         print(f"Error searching documents: {e}")
         return []
@@ -228,12 +236,16 @@ async def process_question(
     question: str,
     model: str = "llama3:8b",
     tone: str = "technical",
-    length: str = "detailed"
+    length: str = "detailed",
+    topic_filter: str = None
 ) -> Dict:
     """Main function to process a question through the RAG pipeline"""
 
-    # Step 1: Search for relevant documents
-    context_docs = await search_similar_documents(question, n_results=5)
+    # Step 1: Search for relevant documents (with optional topic filter)
+    context_docs = await search_similar_documents(question, n_results=5, topic_filter=topic_filter)
+
+    # Collect topics used in context for frontend display
+    topics_in_context = list(set([doc.get("topic", "") for doc in context_docs if doc.get("topic")]))
 
     # Step 2: Generate answer with Ollama
     answer, source_urls = await generate_answer_with_ollama(
@@ -251,7 +263,9 @@ async def process_question(
         "answer_text": answer,
         "pro_tips": pro_tips,
         "source_links": source_urls[:5],  # Max 5 source links
-        "context_used": len(context_docs) > 0
+        "context_used": len(context_docs) > 0,
+        "topics_used": topics_in_context,
+        "topic_filter_applied": topic_filter
     }
 
 
