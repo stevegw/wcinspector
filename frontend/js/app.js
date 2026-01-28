@@ -8,6 +8,7 @@ const API_BASE = '/api';
 
 // State
 let currentQuestionId = null;
+let categories = {};
 let settings = {
     theme: 'light',
     ai_tone: 'technical',
@@ -22,13 +23,13 @@ const elements = {
     questionInput: document.getElementById('question-input'),
     submitBtn: document.getElementById('submit-btn'),
     clearInputBtn: document.getElementById('clear-input-btn'),
+    categorySelect: document.getElementById('category-select'),
+    sampleList: document.getElementById('sample-list'),
 
     // Results
     sampleQuestions: document.getElementById('sample-questions'),
     resultsCard: document.getElementById('results-card'),
-    topicFilter: document.getElementById('topic-filter'),
     topicSelect: document.getElementById('topic-select'),
-    topicFilterStatus: document.getElementById('topic-filter-status'),
     loadingState: document.getElementById('loading-state'),
     answerDisplay: document.getElementById('answer-display'),
     answerText: document.getElementById('answer-text'),
@@ -68,10 +69,14 @@ const elements = {
     scraperModal: document.getElementById('scraper-modal'),
     scraperStatusText: document.getElementById('scraper-status-text'),
     pagesCount: document.getElementById('pages-count'),
+    chunksCount: document.getElementById('chunks-count'),
     lastUpdated: document.getElementById('last-updated'),
+    categoryStats: document.getElementById('category-stats'),
     scraperProgress: document.getElementById('scraper-progress'),
     progressFill: document.getElementById('progress-fill'),
     progressText: document.getElementById('progress-text'),
+    scrapeCategorySelect: document.getElementById('scrape-category-select'),
+    scrapeMaxPages: document.getElementById('scrape-max-pages'),
     startScrapeBtn: document.getElementById('start-scrape-btn'),
     exportBtn: document.getElementById('export-btn'),
     resetKbBtn: document.getElementById('reset-kb-btn'),
@@ -106,6 +111,9 @@ async function init() {
     // Apply theme
     applyTheme(settings.theme);
 
+    // Load categories first (needed for other components)
+    await loadCategories();
+
     // Load history
     await loadHistory();
 
@@ -130,9 +138,16 @@ function setupEventListeners() {
         elements.questionInput.focus();
     });
 
+    // Category selector
+    elements.categorySelect.addEventListener('change', handleCategoryChange);
+
     // Sample Questions
     document.querySelectorAll('.sample-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+            const category = btn.dataset.category;
+            if (category) {
+                elements.categorySelect.value = category;
+            }
             elements.questionInput.value = btn.textContent;
             elements.questionInput.focus();
         });
@@ -335,12 +350,13 @@ async function handleQuestionSubmit(e) {
     showLoading();
 
     try {
-        // Get topic filter if selected
+        // Get topic filter and category if selected
         const topicFilter = getSelectedTopicFilter();
+        const category = getSelectedCategory();
 
         const data = await apiRequest('/ask', {
             method: 'POST',
-            body: JSON.stringify({ question, topic_filter: topicFilter })
+            body: JSON.stringify({ question, topic_filter: topicFilter, category })
         });
 
         currentQuestionId = data.question_id;
@@ -515,10 +531,22 @@ async function loadScraperStats() {
     try {
         const data = await apiRequest('/scraper/stats');
         elements.pagesCount.textContent = data.total_pages || 0;
+        elements.chunksCount.textContent = data.total_chunks || 0;
         elements.lastUpdated.textContent = data.last_full_scrape
             ? formatDate(data.last_full_scrape)
             : 'Never';
-        elements.scraperStatusText.textContent = `Knowledge base: ${data.total_pages || 0} pages`;
+        elements.scraperStatusText.textContent = `Knowledge base: ${data.total_pages || 0} pages, ${data.total_chunks || 0} chunks`;
+
+        // Display per-category stats
+        if (data.by_category && Object.keys(data.by_category).length > 0) {
+            elements.categoryStats.innerHTML = '<h4>By Category:</h4>' +
+                Object.entries(data.by_category).map(([cat, stats]) => {
+                    const catName = categories[cat]?.name || cat;
+                    return `<p><strong>${escapeHtml(catName)}:</strong> ${stats.pages || 0} pages, ${stats.chunks || 0} chunks</p>`;
+                }).join('');
+        } else {
+            elements.categoryStats.innerHTML = '';
+        }
     } catch (error) {
         console.error('Failed to load scraper stats:', error);
     }
@@ -526,9 +554,16 @@ async function loadScraperStats() {
 
 async function startScrape() {
     try {
-        await apiRequest('/scraper/start', { method: 'POST' });
+        const category = elements.scrapeCategorySelect.value;
+        const maxPages = parseInt(elements.scrapeMaxPages.value) || 1500;
+        await apiRequest('/scraper/start', {
+            method: 'POST',
+            body: JSON.stringify({ category, max_pages: maxPages })
+        });
         elements.scraperProgress.classList.remove('hidden');
         elements.startScrapeBtn.disabled = true;
+        const catName = categories[category]?.name || category;
+        showToast(`Starting scrape for ${catName} (${maxPages} pages)...`, 'success');
         pollScrapeStatus();
     } catch (error) {
         showToast('Failed to start scrape', 'error');
@@ -606,9 +641,11 @@ async function loadModels() {
 }
 
 // Topics Functions
-async function loadTopics() {
+async function loadTopics(category = null) {
     try {
-        const data = await apiRequest('/topics');
+        // Build URL with optional category parameter
+        const url = category ? `/topics?category=${encodeURIComponent(category)}` : '/topics';
+        const data = await apiRequest(url);
         if (data.topics && data.topics.length > 0) {
             // Keep the "All Topics" option and add the rest
             elements.topicSelect.innerHTML = '<option value="">All Topics</option>' +
@@ -630,12 +667,9 @@ function getSelectedTopicFilter() {
 }
 
 function updateTopicFilterStatus(topicApplied) {
+    // Status is now shown via toast notification instead of inline text
     if (topicApplied) {
-        elements.topicFilterStatus.textContent = `Filtered by: ${topicApplied}`;
-        elements.topicFilterStatus.classList.add('active');
-    } else {
-        elements.topicFilterStatus.textContent = 'Showing all topics';
-        elements.topicFilterStatus.classList.remove('active');
+        console.log(`Topic filter applied: ${topicApplied}`);
     }
 }
 
@@ -661,6 +695,82 @@ async function handleTopicFilterChange() {
     } catch (error) {
         showError(error.message);
     }
+}
+
+// Categories Functions
+async function loadCategories() {
+    console.log('loadCategories called');
+    console.log('categorySelect element:', elements.categorySelect);
+    try {
+        const data = await apiRequest('/categories');
+        console.log('API response:', data);
+        categories = data.categories || {};
+
+        console.log('Categories object:', categories);
+        console.log('Categories entries:', Object.entries(categories));
+
+        // Populate category select dropdown
+        const categoryOptions = Object.entries(categories).map(([key, cat]) => {
+            console.log('Processing category:', key, cat);
+            return `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`;
+        }).join('');
+
+        console.log('Category options HTML:', categoryOptions);
+
+        if (elements.categorySelect) {
+            elements.categorySelect.innerHTML = '<option value="">All Categories</option>' + categoryOptions;
+            console.log('Updated categorySelect innerHTML');
+        } else {
+            console.error('categorySelect element is null!');
+        }
+
+        if (elements.scrapeCategorySelect) {
+            elements.scrapeCategorySelect.innerHTML = categoryOptions;
+        }
+
+        // Update sample questions visibility based on category
+        updateSampleQuestions();
+    } catch (error) {
+        console.error('Failed to load categories:', error);
+        if (elements.categorySelect) {
+            elements.categorySelect.innerHTML = '<option value="">All Categories</option>';
+        }
+    }
+}
+
+function getSelectedCategory() {
+    return elements.categorySelect.value || null;
+}
+
+async function handleCategoryChange() {
+    const category = getSelectedCategory();
+
+    // Update sample questions visibility
+    updateSampleQuestions();
+
+    // Update placeholder text based on category
+    if (category && categories[category]) {
+        elements.questionInput.placeholder = `Ask a question about ${categories[category].name}...`;
+    } else {
+        elements.questionInput.placeholder = 'Ask a question...';
+    }
+
+    // Reload topics for the selected category
+    await loadTopics(category);
+}
+
+function updateSampleQuestions() {
+    const selectedCategory = getSelectedCategory();
+    const sampleBtns = elements.sampleList.querySelectorAll('.sample-btn');
+
+    sampleBtns.forEach(btn => {
+        const btnCategory = btn.dataset.category;
+        if (!selectedCategory || btnCategory === selectedCategory) {
+            btn.style.display = '';
+        } else {
+            btn.style.display = 'none';
+        }
+    });
 }
 
 // Utility Functions

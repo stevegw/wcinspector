@@ -94,6 +94,41 @@ async def health_check():
     }
 
 
+@app.get("/api/categories")
+async def get_categories():
+    """Get available documentation categories and their stats"""
+    from scraper import DOC_CATEGORIES
+    from rag import get_vectorstore_stats
+    from database import SessionLocal, ScrapedPage
+
+    db = SessionLocal()
+    try:
+        # Get vector store stats
+        vs_stats = get_vectorstore_stats()
+
+        # Return as a dict keyed by category id for frontend compatibility
+        categories = {}
+        for key, info in DOC_CATEGORIES.items():
+            # Count pages in database for this category
+            page_count = db.query(ScrapedPage).filter(ScrapedPage.category == key).count()
+            chunk_count = vs_stats.get("categories", {}).get(key, 0)
+
+            categories[key] = {
+                "name": info["name"],
+                "description": info["description"],
+                "base_url": info["base_url"],
+                "pages_scraped": page_count,
+                "chunks_indexed": chunk_count
+            }
+
+        return {
+            "categories": categories,
+            "total_chunks": vs_stats.get("count", 0)
+        }
+    finally:
+        db.close()
+
+
 # ============== Question/Answer API Endpoints ==============
 
 from pydantic import BaseModel
@@ -103,6 +138,7 @@ from typing import Optional
 class AskRequest(BaseModel):
     question: str
     topic_filter: Optional[str] = None
+    category: Optional[str] = None  # windchill, creo, or None for all
 
 
 @app.post("/api/ask")
@@ -117,6 +153,7 @@ async def ask_question(request: AskRequest):
         return {"error": "Question cannot be empty"}, 400
 
     topic_filter = request.topic_filter
+    category = request.category
 
     db = SessionLocal()
     try:
@@ -133,13 +170,14 @@ async def ask_question(request: AskRequest):
         db.commit()
         db.refresh(question)
 
-        # Process through RAG pipeline with optional topic filter
+        # Process through RAG pipeline with optional topic and category filters
         result = await process_question(
             question=question_text,
             model=model,
             tone=tone,
             length=length,
-            topic_filter=topic_filter
+            topic_filter=topic_filter,
+            category=category
         )
 
         # Store answer
@@ -374,24 +412,30 @@ async def reset_knowledge_base():
 # ============== Topics API Endpoints ==============
 
 @app.get("/api/topics")
-async def get_topics():
-    """Get all available topics from the knowledge base"""
+async def get_topics(category: str = None):
+    """Get all available topics from the knowledge base, optionally filtered by category"""
     from database import SessionLocal, ScrapedPage
     from sqlalchemy import distinct
 
     db = SessionLocal()
     try:
-        # Get all distinct non-null topics
-        topics_query = db.query(distinct(ScrapedPage.topic)).filter(
+        # Build query for distinct non-null topics
+        query = db.query(distinct(ScrapedPage.topic)).filter(
             ScrapedPage.topic != None,
             ScrapedPage.topic != ""
-        ).all()
+        )
 
+        # Filter by category if specified
+        if category:
+            query = query.filter(ScrapedPage.category == category)
+
+        topics_query = query.all()
         topics = sorted([t[0] for t in topics_query if t[0]])
 
         return {
             "topics": topics,
-            "count": len(topics)
+            "count": len(topics),
+            "category": category
         }
     finally:
         db.close()
@@ -401,6 +445,8 @@ async def get_topics():
 async def get_scraper_stats():
     """Get scraping statistics"""
     from database import SessionLocal, ScrapeStats, ScrapedPage
+    from rag import get_vectorstore_stats
+    from scraper import DOC_CATEGORIES
 
     db = SessionLocal()
     try:
@@ -409,22 +455,36 @@ async def get_scraper_stats():
         # Count articles (pages with actual content)
         total_articles = db.query(ScrapedPage).filter(ScrapedPage.content != None, ScrapedPage.content != "").count()
 
+        # Get vector store stats for chunk counts
+        vs_stats = get_vectorstore_stats()
+        total_chunks = vs_stats.get("count", 0)
+
+        # Get per-category stats
+        by_category = {}
+        for cat_key in DOC_CATEGORIES.keys():
+            cat_pages = db.query(ScrapedPage).filter(ScrapedPage.category == cat_key).count()
+            cat_chunks = vs_stats.get("categories", {}).get(cat_key, 0)
+            by_category[cat_key] = {
+                "pages": cat_pages,
+                "chunks": cat_chunks
+            }
+
+        result = {
+            "total_pages": total_pages,
+            "total_articles": total_articles,
+            "total_chunks": total_chunks,
+            "by_category": by_category,
+            "last_full_scrape": None,
+            "last_partial_scrape": None,
+            "scrape_duration": None
+        }
+
         if stats:
-            return {
-                "total_pages": total_pages,
-                "total_articles": total_articles,
-                "last_full_scrape": stats.last_full_scrape.isoformat() if stats.last_full_scrape else None,
-                "last_partial_scrape": stats.last_partial_scrape.isoformat() if stats.last_partial_scrape else None,
-                "scrape_duration": stats.scrape_duration
-            }
-        else:
-            return {
-                "total_pages": total_pages,
-                "total_articles": total_articles,
-                "last_full_scrape": None,
-                "last_partial_scrape": None,
-                "scrape_duration": None
-            }
+            result["last_full_scrape"] = stats.last_full_scrape.isoformat() if stats.last_full_scrape else None
+            result["last_partial_scrape"] = stats.last_partial_scrape.isoformat() if stats.last_partial_scrape else None
+            result["scrape_duration"] = stats.scrape_duration
+
+        return result
     finally:
         db.close()
 
@@ -446,11 +506,24 @@ async def get_scraper_status():
     }
 
 
+class ScrapeRequest(BaseModel):
+    category: str = "windchill"
+    max_pages: int = 500
+
+
 @app.post("/api/scraper/start")
-async def start_scraper(max_pages: int = 50):
-    """Start a full scrape of PTC documentation"""
-    from scraper import get_scraper_state, start_scrape_background
+async def start_scraper(request: ScrapeRequest = None):
+    """Start a scrape of PTC documentation for a specific category"""
+    from scraper import get_scraper_state, start_scrape_background, DOC_CATEGORIES
     from database import SessionLocal
+
+    # Handle both JSON body and default values
+    category = request.category if request else "windchill"
+    max_pages = request.max_pages if request else 500
+
+    # Validate category
+    if category not in DOC_CATEGORIES:
+        return {"status": "error", "message": f"Unknown category: {category}. Valid: {list(DOC_CATEGORIES.keys())}"}
 
     # Check if already scraping
     state = get_scraper_state()
@@ -459,11 +532,12 @@ async def start_scraper(max_pages: int = 50):
 
     # Start scrape in background
     db = SessionLocal()
-    await start_scrape_background(db, max_pages)
+    await start_scrape_background(db, max_pages, category)
 
     return {
         "status": "started",
-        "message": "Scrape started in background",
+        "message": f"Scrape started for {DOC_CATEGORIES[category]['name']}",
+        "category": category,
         "max_pages": max_pages
     }
 

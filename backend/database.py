@@ -63,8 +63,24 @@ class ScrapedPage(Base):
     content = Column(Text)
     section = Column(String(200))
     topic = Column(String(200))
+    category = Column(String(100), default="windchill")  # windchill, creo, etc.
     scraped_at = Column(DateTime, default=datetime.utcnow)
     content_hash = Column(String(64))  # SHA-256 hash for detecting changes
+
+
+# Documentation categories configuration
+DOC_CATEGORIES = {
+    "windchill": {
+        "name": "Windchill",
+        "base_url": "https://support.ptc.com/help/windchill/r13.1.2.0/en/",
+        "description": "PTC Windchill PLM Documentation"
+    },
+    "creo": {
+        "name": "Creo",
+        "base_url": "https://support.ptc.com/help/creo/creo_pma/r12/usascii/",
+        "description": "PTC Creo Parametric Documentation"
+    }
+}
 
 
 class ScrapeStats(Base):
