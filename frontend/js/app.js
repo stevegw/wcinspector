@@ -89,11 +89,27 @@ const elements = {
     confirmOk: document.getElementById('confirm-ok'),
 
     // Toast Container
-    toastContainer: document.getElementById('toast-container')
+    toastContainer: document.getElementById('toast-container'),
+
+    // Related Images
+    relatedImages: document.getElementById('related-images'),
+    imagesList: document.getElementById('images-list'),
+
+    // Lightbox
+    lightboxModal: document.getElementById('lightbox-modal'),
+    lightboxImage: document.getElementById('lightbox-image'),
+    lightboxCaption: document.getElementById('lightbox-caption'),
+    lightboxClose: document.getElementById('lightbox-close'),
+    lightboxPrev: document.getElementById('lightbox-prev'),
+    lightboxNext: document.getElementById('lightbox-next')
 };
 
 // Current sources for modal
 let currentSources = [];
+
+// Current images for lightbox
+let currentImages = [];
+let currentImageIndex = 0;
 
 // Confirm callback
 let confirmCallback = null;
@@ -224,6 +240,38 @@ function setupEventListeners() {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleQuestionSubmit(e);
+        }
+    });
+
+    // Lightbox controls
+    if (elements.lightboxClose) {
+        elements.lightboxClose.addEventListener('click', closeLightbox);
+    }
+    if (elements.lightboxPrev) {
+        elements.lightboxPrev.addEventListener('click', () => navigateLightbox(-1));
+    }
+    if (elements.lightboxNext) {
+        elements.lightboxNext.addEventListener('click', () => navigateLightbox(1));
+    }
+    if (elements.lightboxModal) {
+        elements.lightboxModal.addEventListener('click', (e) => {
+            if (e.target === elements.lightboxModal) {
+                closeLightbox();
+            }
+        });
+    }
+
+    // Keyboard navigation for lightbox
+    document.addEventListener('keydown', (e) => {
+        if (!elements.lightboxModal || elements.lightboxModal.classList.contains('hidden')) {
+            return;
+        }
+        if (e.key === 'Escape') {
+            closeLightbox();
+        } else if (e.key === 'ArrowLeft') {
+            navigateLightbox(-1);
+        } else if (e.key === 'ArrowRight') {
+            navigateLightbox(1);
         }
     });
 
@@ -421,6 +469,9 @@ function displayAnswer(data) {
     } else {
         elements.proTips.classList.add('hidden');
     }
+
+    // Display relevant images
+    displayRelevantImages(data.relevant_images || []);
 }
 
 function showError(message) {
@@ -810,3 +861,109 @@ function formatDate(dateString) {
 function formatDateFilename(date) {
     return date.toISOString().split('T')[0];
 }
+
+// Image Functions
+function displayRelevantImages(images) {
+    if (!elements.relatedImages || !elements.imagesList) {
+        return;
+    }
+
+    currentImages = images || [];
+
+    if (currentImages.length === 0) {
+        elements.relatedImages.classList.add('hidden');
+        return;
+    }
+
+    elements.relatedImages.classList.remove('hidden');
+    elements.imagesList.innerHTML = currentImages.map((img, index) => {
+        const altText = escapeHtml(img.alt_text || img.caption || 'Documentation image');
+        const caption = img.caption || img.alt_text || '';
+        return `
+            <div class="image-item" data-index="${index}" onclick="showImageLightbox(${index})">
+                <img src="${escapeHtml(img.url)}" alt="${altText}" loading="lazy" onerror="this.parentElement.style.display='none'">
+                <div class="image-overlay">
+                    <div class="image-overlay-text">${escapeHtml(caption)}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function showImageLightbox(index) {
+    if (!elements.lightboxModal || !currentImages || currentImages.length === 0) {
+        return;
+    }
+
+    currentImageIndex = index;
+    updateLightboxImage();
+    elements.lightboxModal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeLightbox() {
+    if (!elements.lightboxModal) {
+        return;
+    }
+
+    elements.lightboxModal.classList.add('hidden');
+    document.body.style.overflow = '';
+}
+
+function navigateLightbox(direction) {
+    if (!currentImages || currentImages.length === 0) {
+        return;
+    }
+
+    currentImageIndex += direction;
+
+    // Wrap around
+    if (currentImageIndex < 0) {
+        currentImageIndex = currentImages.length - 1;
+    } else if (currentImageIndex >= currentImages.length) {
+        currentImageIndex = 0;
+    }
+
+    updateLightboxImage();
+}
+
+function updateLightboxImage() {
+    if (!elements.lightboxImage || !elements.lightboxCaption) {
+        return;
+    }
+
+    const img = currentImages[currentImageIndex];
+    if (!img) {
+        return;
+    }
+
+    elements.lightboxImage.src = img.url;
+    elements.lightboxImage.alt = img.alt_text || img.caption || 'Documentation image';
+
+    // Build caption
+    let captionHtml = '';
+    if (img.alt_text) {
+        captionHtml += `<div class="lightbox-caption-title">${escapeHtml(img.alt_text)}</div>`;
+    }
+    if (img.caption && img.caption !== img.alt_text) {
+        captionHtml += `<div class="lightbox-caption-text">${escapeHtml(img.caption)}</div>`;
+    }
+    if (img.page_title) {
+        captionHtml += `<div class="lightbox-caption-text">From: ${escapeHtml(img.page_title)}</div>`;
+    }
+
+    // Show image count
+    captionHtml += `<div class="lightbox-caption-text">${currentImageIndex + 1} of ${currentImages.length}</div>`;
+
+    elements.lightboxCaption.innerHTML = captionHtml;
+
+    // Update nav button visibility
+    if (elements.lightboxPrev && elements.lightboxNext) {
+        const showNav = currentImages.length > 1;
+        elements.lightboxPrev.style.display = showNav ? '' : 'none';
+        elements.lightboxNext.style.display = showNav ? '' : 'none';
+    }
+}
+
+// Make showImageLightbox globally accessible for onclick
+window.showImageLightbox = showImageLightbox;

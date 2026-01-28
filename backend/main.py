@@ -199,6 +199,7 @@ async def ask_question(request: AskRequest):
             "answer_text": result["answer_text"],
             "pro_tips": result["pro_tips"],
             "source_links": result["source_links"],
+            "relevant_images": result.get("relevant_images", []),
             "model_used": model,
             "topics_used": result.get("topics_used", []),
             "topic_filter_applied": result.get("topic_filter_applied")
@@ -325,6 +326,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
             "answer_text": result["answer_text"],
             "pro_tips": result["pro_tips"],
             "source_links": result["source_links"],
+            "relevant_images": result.get("relevant_images", []),
             "model_used": model,
             "topics_used": result.get("topics_used", []),
             "topic_filter_applied": result.get("topic_filter_applied")

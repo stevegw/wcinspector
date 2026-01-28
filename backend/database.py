@@ -67,6 +67,27 @@ class ScrapedPage(Base):
     scraped_at = Column(DateTime, default=datetime.utcnow)
     content_hash = Column(String(64))  # SHA-256 hash for detecting changes
 
+    # Relationship to images
+    images = relationship("ScrapedImage", back_populates="page", cascade="all, delete-orphan")
+
+
+class ScrapedImage(Base):
+    """Model for storing images extracted from scraped pages"""
+    __tablename__ = "scraped_images"
+
+    id = Column(Integer, primary_key=True, index=True)
+    page_id = Column(Integer, ForeignKey("scraped_pages.id"), nullable=False)
+    url = Column(String(1000), nullable=False)
+    alt_text = Column(Text)
+    caption = Column(Text)
+    context_before = Column(Text)  # Text before the image
+    context_after = Column(Text)   # Text after the image
+    ai_caption = Column(Text)      # AI-generated caption (optional)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relationship to page
+    page = relationship("ScrapedPage", back_populates="images")
+
 
 # Documentation categories configuration
 DOC_CATEGORIES = {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=4">
+    <link rel="stylesheet" href="/static/css/styles.css?v=5">
 </head>
 <body>
     <!-- Header -->
@@ -118,6 +118,14 @@
                         <h4>💡 Pro Tips</h4>
                         <div class="tips-list" id="tips-list">
                             <!-- Pro tips will be inserted here -->
+                        </div>
+                    </div>
+
+                    <!-- Related Images -->
+                    <div class="related-images hidden" id="related-images">
+                        <h4>Related Images</h4>
+                        <div class="images-list" id="images-list">
+                            <!-- Images will be inserted here -->
                         </div>
                     </div>
 
@@ -255,11 +263,22 @@
         </div>
     </div>
 
+    <!-- Image Lightbox Modal -->
+    <div class="lightbox-modal hidden" id="lightbox-modal">
+        <button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
+        <button class="lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Previous">&lt;</button>
+        <div class="lightbox-content">
+            <img id="lightbox-image" src="" alt="">
+            <div class="lightbox-caption" id="lightbox-caption"></div>
+        </div>
+        <button class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="Next">&gt;</button>
+    </div>
+
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container">
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=4"></script>
+    <script src="/static/js/app.js?v=5"></script>
 </body>
 </html>

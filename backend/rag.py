@@ -115,8 +115,26 @@ async def get_ollama_embedding(text: str) -> Optional[List[float]]:
     return None
 
 
-async def add_documents_to_vectorstore(documents: List[Dict], category: str = "windchill") -> int:
-    """Add scraped documents to the ChromaDB vector store with chunking"""
+def build_image_searchable_text(img: Dict) -> str:
+    """Build searchable text from image metadata for vector embedding."""
+    parts = []
+
+    if img.get("alt_text"):
+        parts.append(f"Image: {img['alt_text']}")
+    if img.get("caption"):
+        parts.append(f"Caption: {img['caption']}")
+    if img.get("context_before"):
+        parts.append(f"Context: {img['context_before']}")
+    if img.get("context_after"):
+        parts.append(img['context_after'])
+    if img.get("page_title"):
+        parts.append(f"From: {img['page_title']}")
+
+    return " ".join(parts) if parts else ""
+
+
+async def add_documents_to_vectorstore(documents: List[Dict], category: str = "windchill", images: List[Dict] = None) -> int:
+    """Add scraped documents and images to the ChromaDB vector store with chunking"""
     if collection is None:
         print("ChromaDB collection not initialized")
         return 0
@@ -141,10 +159,45 @@ async def add_documents_to_vectorstore(documents: List[Dict], category: str = "w
                     "section": doc.get("section", ""),
                     "topic": doc.get("topic", ""),
                     "category": category,
+                    "chunk_type": "text",
                     "chunk_index": i,
                     "total_chunks": len(text_chunks)
                 }
             })
+
+    # Add image chunks (deduplicated by URL)
+    if images:
+        seen_image_ids = set()
+        image_count = 0
+        for img in images:
+            searchable_text = build_image_searchable_text(img)
+            if not searchable_text:
+                continue
+
+            img_id = f"{category}_img_{hash(img.get('url', ''))}"
+
+            # Skip duplicates within this batch
+            if img_id in seen_image_ids:
+                continue
+            seen_image_ids.add(img_id)
+
+            all_chunks.append({
+                "id": img_id,
+                "text": searchable_text,
+                "metadata": {
+                    "url": img.get("page_url", ""),
+                    "title": img.get("page_title", ""),
+                    "section": img.get("section", ""),
+                    "topic": img.get("topic", ""),
+                    "category": category,
+                    "chunk_type": "image",
+                    "image_url": img.get("url", ""),
+                    "image_alt": img.get("alt_text", ""),
+                    "image_caption": img.get("caption", "")
+                }
+            })
+            image_count += 1
+        print(f"Added {image_count} unique image chunks (from {len(images)} total)")
 
     print(f"Created {len(all_chunks)} chunks from {len(documents)} documents")
 
@@ -163,8 +216,8 @@ async def add_documents_to_vectorstore(documents: List[Dict], category: str = "w
             # Generate embeddings for the batch
             embeddings = embedding_model.encode(texts).tolist()
 
-            # Add batch to collection with embeddings
-            collection.add(
+            # Upsert batch to collection with embeddings (handles duplicates)
+            collection.upsert(
                 documents=texts,
                 embeddings=embeddings,
                 metadatas=metadatas,
@@ -213,14 +266,22 @@ async def search_similar_documents(query: str, n_results: int = 5, topic_filter:
         if results and results.get("documents"):
             for i, doc in enumerate(results["documents"][0]):
                 metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
-                documents.append({
+                doc_entry = {
                     "content": doc,
                     "url": metadata.get("url", ""),
                     "title": metadata.get("title", ""),
                     "section": metadata.get("section", ""),
                     "topic": metadata.get("topic", ""),
-                    "category": metadata.get("category", "")
-                })
+                    "category": metadata.get("category", ""),
+                    "chunk_type": metadata.get("chunk_type", "text")
+                }
+                # Include image metadata if this is an image chunk
+                if metadata.get("chunk_type") == "image":
+                    doc_entry["image_url"] = metadata.get("image_url", "")
+                    doc_entry["image_alt"] = metadata.get("image_alt", "")
+                    doc_entry["image_caption"] = metadata.get("image_caption", "")
+
+                documents.append(doc_entry)
 
         # Limit results after filtering
         return documents[:n_results]
@@ -315,13 +376,33 @@ async def generate_answer(
     model: str = None,
     tone: str = "technical",
     length: str = "detailed"
-) -> Tuple[str, List[str]]:
-    """Generate an answer using the configured LLM provider (Groq or Ollama)"""
+) -> Tuple[str, List[str], List[Dict]]:
+    """Generate an answer using the configured LLM provider (Groq or Ollama)
 
-    # Build context from retrieved documents
+    Returns:
+        Tuple of (answer_text, source_urls, relevant_images)
+    """
+
+    # Build context from retrieved documents and collect images
     context_parts = []
     source_urls = []
+    relevant_images = []
+    seen_image_urls = set()
+
     for doc in context_documents:
+        # Collect images from image chunks
+        if doc.get("chunk_type") == "image" and doc.get("image_url"):
+            img_url = doc["image_url"]
+            if img_url not in seen_image_urls:
+                seen_image_urls.add(img_url)
+                relevant_images.append({
+                    "url": img_url,
+                    "alt_text": doc.get("image_alt", ""),
+                    "caption": doc.get("image_caption", ""),
+                    "page_url": doc.get("url", ""),
+                    "page_title": doc.get("title", "")
+                })
+
         if doc.get("content"):
             context_parts.append(f"Title: {doc.get('title', 'Unknown')}\nContent: {doc['content'][:2000]}")
             if doc.get("url"):
@@ -373,10 +454,12 @@ Context from PTC documentation:
 
     # Use Groq if configured, otherwise fall back to Ollama
     if LLM_PROVIDER == "groq" and groq_client:
-        return await generate_answer_with_groq(question, context, system_prompt, source_urls, length)
+        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length)
+        return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
     else:
         ollama_model = model or LLM_MODEL or DEFAULT_MODELS["ollama"]
-        return await generate_answer_with_ollama(question, context, system_prompt, source_urls, ollama_model, length)
+        answer, urls = await generate_answer_with_ollama(question, context, system_prompt, source_urls, ollama_model, length)
+        return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
 
 
 def extract_pro_tips(answer: str, question: str) -> List[str]:
@@ -439,7 +522,7 @@ async def process_question(
     categories_in_context = list(set([doc.get("category", "") for doc in context_docs if doc.get("category")]))
 
     # Step 2: Generate answer with configured LLM (Groq or Ollama)
-    answer, source_urls = await generate_answer(
+    answer, source_urls, relevant_images = await generate_answer(
         question=question,
         context_documents=context_docs,
         model=model,
@@ -454,6 +537,7 @@ async def process_question(
         "answer_text": answer,
         "pro_tips": pro_tips,
         "source_links": source_urls[:5],  # Max 5 source links
+        "relevant_images": relevant_images,
         "context_used": len(context_docs) > 0,
         "topics_used": topics_in_context,
         "categories_used": categories_in_context,

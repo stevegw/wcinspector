@@ -68,6 +68,85 @@ def content_hash(content: str) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+def extract_images(html: str, page_url: str, base_url: str) -> list:
+    """
+    Extract images from HTML before content is decomposed.
+    Returns a list of image dictionaries with metadata.
+    """
+    soup = BeautifulSoup(html, 'html.parser')
+    images = []
+
+    for img in soup.find_all('img'):
+        src = img.get('src', '')
+        if not src:
+            continue
+
+        # Skip tiny images (likely icons) based on width/height attributes
+        width = img.get('width', '')
+        height = img.get('height', '')
+        try:
+            if width and int(width) < 50:
+                continue
+            if height and int(height) < 50:
+                continue
+        except (ValueError, TypeError):
+            pass
+
+        # Skip data URLs and common icon patterns
+        if src.startswith('data:'):
+            continue
+
+        # Get alt text for filtering
+        alt_text = img.get('alt', '') or ''
+        title = img.get('title', '') or ''
+        combined_text = (src + alt_text + title).lower()
+
+        # Skip icons and logos (check src, alt, and title)
+        skip_patterns = ['icon', 'logo', 'bullet', 'arrow', 'button', 'spacer', 'banner', 'nav-', 'menu-']
+        if any(skip in combined_text for skip in skip_patterns):
+            continue
+
+        # Build absolute URL
+        full_url = urljoin(page_url, src)
+
+        # Get alt text and title
+        alt_text = img.get('alt', '') or ''
+        title = img.get('title', '') or ''
+
+        # Look for caption in figcaption
+        caption = ''
+        figure = img.find_parent('figure')
+        if figure:
+            figcaption = figure.find('figcaption')
+            if figcaption:
+                caption = figcaption.get_text(strip=True)
+
+        # Get surrounding text context (for searchability)
+        context_before = ''
+        context_after = ''
+
+        # Get previous sibling text
+        prev_elem = img.find_previous(string=True)
+        if prev_elem:
+            context_before = str(prev_elem).strip()[:200]
+
+        # Get next sibling text
+        next_elem = img.find_next(string=True)
+        if next_elem:
+            context_after = str(next_elem).strip()[:200]
+
+        # Include all non-icon images (even without metadata)
+        images.append({
+            'url': full_url,
+            'alt_text': alt_text or title or '',
+            'caption': caption,
+            'context_before': context_before,
+            'context_after': context_after
+        })
+
+    return images
+
+
 def extract_text_content(html: str) -> str:
     """Extract clean text from HTML"""
     soup = BeautifulSoup(html, 'html.parser')
@@ -192,6 +271,10 @@ def scrape_page_sync(session: requests.Session, url: str, category_base_url: str
         response = session.get(url, timeout=30)
         if response.status_code == 200:
             html = response.text
+
+            # Extract images BEFORE text content processing (which may modify the HTML)
+            images = extract_images(html, url, category_base_url or url)
+
             content = extract_text_content(html)
             title = extract_title(html)
             section, topic = extract_section_topic(url, html)
@@ -203,7 +286,8 @@ def scrape_page_sync(session: requests.Session, url: str, category_base_url: str
                 "section": section,
                 "topic": topic,
                 "content_hash": content_hash(content),
-                "links": find_links(html, url, category_base_url)
+                "links": find_links(html, url, category_base_url),
+                "images": images
             }
         else:
             # Log non-200 HTTP status codes as errors
@@ -235,7 +319,7 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
     """
     global scraper_state
 
-    from database import ScrapedPage, ScrapeStats
+    from database import ScrapedPage, ScrapedImage, ScrapeStats
 
     # Get base URL for category
     if category not in DOC_CATEGORIES:
@@ -286,6 +370,19 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
                         existing.category = category
                         existing.content_hash = page_data["content_hash"]
                         existing.scraped_at = datetime.utcnow()
+
+                        # Delete old images and add new ones
+                        db_session.query(ScrapedImage).filter(ScrapedImage.page_id == existing.id).delete()
+                        for img_data in page_data.get("images", []):
+                            new_image = ScrapedImage(
+                                page_id=existing.id,
+                                url=img_data["url"],
+                                alt_text=img_data.get("alt_text"),
+                                caption=img_data.get("caption"),
+                                context_before=img_data.get("context_before"),
+                                context_after=img_data.get("context_after")
+                            )
+                            db_session.add(new_image)
                 else:
                     # Insert new page
                     new_page = ScrapedPage(
@@ -298,6 +395,19 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
                         content_hash=page_data["content_hash"]
                     )
                     db_session.add(new_page)
+                    db_session.flush()  # Get the page ID
+
+                    # Add images for this page
+                    for img_data in page_data.get("images", []):
+                        new_image = ScrapedImage(
+                            page_id=new_page.id,
+                            url=img_data["url"],
+                            alt_text=img_data.get("alt_text"),
+                            caption=img_data.get("caption"),
+                            context_before=img_data.get("context_before"),
+                            context_after=img_data.get("context_after")
+                        )
+                        db_session.add(new_image)
 
                 db_session.commit()
                 scraper_state["pages_scraped"] += 1
@@ -349,7 +459,28 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
             }
             for page in category_pages if page.content
         ]
-        await add_documents_to_vectorstore(documents, category=category)
+
+        # Gather images from the category
+        images = db_session.query(ScrapedImage).join(ScrapedPage).filter(
+            ScrapedPage.category == category
+        ).all()
+        image_docs = [
+            {
+                "url": img.url,
+                "page_url": img.page.url if img.page else "",
+                "page_title": img.page.title if img.page else "",
+                "alt_text": img.alt_text or "",
+                "caption": img.caption or "",
+                "context_before": img.context_before or "",
+                "context_after": img.context_after or "",
+                "section": img.page.section if img.page else "",
+                "topic": img.page.topic if img.page else "",
+                "category": category
+            }
+            for img in images
+        ]
+
+        await add_documents_to_vectorstore(documents, category=category, images=image_docs)
     except Exception as e:
         print(f"Error syncing to vector store: {e}")
         scraper_state["errors"].append(f"Vector store sync error: {str(e)}")
