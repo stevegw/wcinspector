@@ -295,7 +295,8 @@ async def generate_answer_with_groq(
     context: str,
     system_prompt: str,
     source_urls: List[str],
-    length: str = "detailed"
+    length: str = "detailed",
+    category: str = None
 ) -> Tuple[str, List[str]]:
     """Generate an answer using Groq API"""
     if not groq_client:
@@ -303,7 +304,8 @@ async def generate_answer_with_groq(
 
     model = LLM_MODEL or DEFAULT_MODELS["groq"]
 
-    user_prompt = f"""Based on the documentation context provided, please answer this question about Windchill:
+    product_name = "Creo Parametric" if category == "creo" else "Windchill"
+    user_prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
 
 Question: {question}
 
@@ -331,11 +333,13 @@ async def generate_answer_with_ollama(
     system_prompt: str,
     source_urls: List[str],
     model: str = "llama3:8b",
-    length: str = "detailed"
+    length: str = "detailed",
+    category: str = None
 ) -> Tuple[str, List[str]]:
     """Generate an answer using Ollama with the retrieved context"""
 
-    prompt = f"""Based on the documentation context provided, please answer this question about Windchill:
+    product_name = "Creo Parametric" if category == "creo" else "Windchill"
+    prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
 
 Question: {question}
 
@@ -375,7 +379,8 @@ async def generate_answer(
     context_documents: List[Dict],
     model: str = None,
     tone: str = "technical",
-    length: str = "detailed"
+    length: str = "detailed",
+    category: str = None
 ) -> Tuple[str, List[str], List[Dict]]:
     """Generate an answer using the configured LLM provider (Groq or Ollama)
 
@@ -422,14 +427,26 @@ async def generate_answer(
         "detailed": "Provide a comprehensive answer with examples where appropriate."
     }
 
-    system_prompt = f"""You are a Windchill training instructor helping users learn PTC Windchill. Give PRACTICAL, HANDS-ON guidance like you're teaching a class.
+    # Determine product name and examples based on category
+    if category == "creo":
+        product_name = "Creo Parametric"
+        product_desc = "PTC Creo CAD software"
+        example_menu = "Navigate to Sketch > Rectangle"
+        example_item = "Part: BRACKET-001.prt"
+    else:
+        product_name = "Windchill"
+        product_desc = "PTC Windchill PLM"
+        example_menu = "Actions > Lifecycle > Set State"
+        example_item = "Part: BRACKET-001"
+
+    system_prompt = f"""You are a {product_name} training instructor helping users learn {product_desc}. Give PRACTICAL, HANDS-ON guidance like you're teaching a class.
 
 YOUR RESPONSE MUST FOLLOW THIS FORMAT:
 
 **Overview:** [1-2 sentence summary]
 
 **Step-by-Step Instructions:**
-1. [First step with specific menu path, e.g., "Navigate to Create > New Part"]
+1. [First step with specific menu path, e.g., "{example_menu}"]
 2. [Second step describing what to enter/select]
 3. [Continue with numbered steps...]
 
@@ -438,15 +455,15 @@ YOUR RESPONSE MUST FOLLOW THIS FORMAT:
 **Pro Tip:** [One practical shortcut or best practice]
 
 GUIDELINES:
-- Use specific menu paths like "Actions > Lifecycle > Set State"
-- Give concrete examples like "Part: BRACKET-001"
-- Explain why each step matters for traceability/compliance
+- Use specific menu paths relevant to {product_name}
+- Give concrete examples like "{example_item}"
+- Explain why each step matters
 - Warn about common mistakes beginners make
 
 {tone_instructions.get(tone, tone_instructions['technical'])}
 {length_instructions.get(length, length_instructions['detailed'])}
 
-IMPORTANT: Even if the documentation context is limited, use your knowledge of standard PTC software (Windchill PLM, Creo CAD) to provide complete, actionable step-by-step instructions. Never say "refer to documentation" - always give the actual steps.
+IMPORTANT: Even if the documentation context is limited, use your knowledge of {product_name} to provide complete, actionable step-by-step instructions. Never say "refer to documentation" - always give the actual steps. Focus ONLY on {product_name} - do not mention other PTC products unless directly relevant.
 
 Context from PTC documentation:
 {context}
@@ -454,11 +471,11 @@ Context from PTC documentation:
 
     # Use Groq if configured, otherwise fall back to Ollama
     if LLM_PROVIDER == "groq" and groq_client:
-        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length)
+        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length, category)
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
     else:
         ollama_model = model or LLM_MODEL or DEFAULT_MODELS["ollama"]
-        answer, urls = await generate_answer_with_ollama(question, context, system_prompt, source_urls, ollama_model, length)
+        answer, urls = await generate_answer_with_ollama(question, context, system_prompt, source_urls, ollama_model, length, category)
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
 
 
@@ -527,7 +544,8 @@ async def process_question(
         context_documents=context_docs,
         model=model,
         tone=tone,
-        length=length
+        length=length,
+        category=category
     )
 
     # Step 3: Extract pro tips
