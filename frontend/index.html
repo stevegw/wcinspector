@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=5">
+    <link rel="stylesheet" href="/static/css/styles.css?v=7">
 </head>
 <body>
     <!-- Header -->
@@ -100,8 +100,11 @@
 
                 <!-- Answer Display -->
                 <div class="answer-display hidden" id="answer-display">
+                    <div class="question-display" id="question-display">
+                        <h3 id="question-text-display"></h3>
+                    </div>
                     <div class="answer-header">
-                        <h3>Answer</h3>
+                        <h4>Answer</h4>
                         <div class="answer-actions">
                             <button id="copy-btn" class="icon-btn" aria-label="Copy answer">
                                 <span class="icon">📋</span>
@@ -279,6 +282,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=5"></script>
+    <script src="/static/js/app.js?v=6"></script>
 </body>
 </html>

@@ -38,6 +38,9 @@ const elements = {
     errorState: document.getElementById('error-state'),
     errorMessage: document.getElementById('error-message'),
 
+    // Question Display
+    questionTextDisplay: document.getElementById('question-text-display'),
+
     // Answer Actions
     copyBtn: document.getElementById('copy-btn'),
     rerunBtn: document.getElementById('rerun-btn'),
@@ -106,6 +109,9 @@ const elements = {
 
 // Current sources for modal
 let currentSources = [];
+
+// Current question text for display
+let currentQuestionText = '';
 
 // Current images for lightbox
 let currentImages = [];
@@ -409,7 +415,7 @@ async function handleQuestionSubmit(e) {
 
         currentQuestionId = data.question_id;
         currentSources = data.source_links || [];
-        displayAnswer(data);
+        displayAnswer(data, question);
         updateTopicFilterStatus(data.topic_filter_applied);
         await loadHistory();
         elements.questionInput.value = '';
@@ -452,11 +458,19 @@ function showLoading() {
     elements.submitBtn.disabled = true;
 }
 
-function displayAnswer(data) {
+function displayAnswer(data, questionText = null) {
     elements.loadingState.classList.add('hidden');
     elements.answerDisplay.classList.remove('hidden');
     elements.errorState.classList.add('hidden');
     elements.submitBtn.disabled = false;
+
+    // Display the question text above the answer
+    if (questionText) {
+        currentQuestionText = questionText;
+    }
+    if (elements.questionTextDisplay && currentQuestionText) {
+        elements.questionTextDisplay.textContent = currentQuestionText;
+    }
 
     elements.answerText.innerHTML = formatAnswer(data.answer_text);
 
@@ -540,7 +554,7 @@ async function loadQuestion(id) {
         elements.resultsCard.classList.remove('hidden');
 
         if (data.answer) {
-            displayAnswer(data.answer);
+            displayAnswer(data.answer, data.question_text);
         }
 
         // Update active state in history
