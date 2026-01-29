@@ -14,7 +14,8 @@ let settings = {
     ai_tone: 'technical',
     response_length: 'detailed',
     ollama_model: 'llama2',
-    llm_provider: 'groq'
+    llm_provider: 'groq',
+    groq_model: 'llama-3.1-8b-instant'
 };
 
 // DOM Elements
@@ -61,6 +62,9 @@ const elements = {
     toneSelect: document.getElementById('tone-select'),
     lengthSelect: document.getElementById('length-select'),
     providerSelect: document.getElementById('provider-select'),
+    groqModelGroup: document.getElementById('groq-model-group'),
+    groqModelSelect: document.getElementById('groq-model-select'),
+    ollamaModelGroup: document.getElementById('ollama-model-group'),
     modelSelect: document.getElementById('model-select'),
     resetSettingsBtn: document.getElementById('reset-settings-btn'),
     saveSettingsBtn: document.getElementById('save-settings-btn'),
@@ -199,6 +203,7 @@ function setupEventListeners() {
 
     // Settings
     elements.settingsBtn.addEventListener('click', () => showModal(elements.settingsModal));
+    elements.providerSelect.addEventListener('change', updateModelGroupVisibility);
     elements.resetSettingsBtn.addEventListener('click', resetSettings);
     elements.saveSettingsBtn.addEventListener('click', saveSettings);
 
@@ -328,8 +333,24 @@ function updateSettingsUI() {
     if (settings.llm_provider) {
         elements.providerSelect.value = settings.llm_provider;
     }
+    if (settings.groq_model) {
+        elements.groqModelSelect.value = settings.groq_model;
+    }
     if (settings.ollama_model) {
         elements.modelSelect.value = settings.ollama_model;
+    }
+    // Show/hide model groups based on provider
+    updateModelGroupVisibility();
+}
+
+function updateModelGroupVisibility() {
+    const provider = elements.providerSelect.value;
+    if (provider === 'groq') {
+        elements.groqModelGroup.classList.remove('hidden');
+        elements.ollamaModelGroup.classList.add('hidden');
+    } else {
+        elements.groqModelGroup.classList.add('hidden');
+        elements.ollamaModelGroup.classList.remove('hidden');
     }
 }
 
@@ -337,6 +358,7 @@ async function saveSettings() {
     settings.ai_tone = elements.toneSelect.value;
     settings.response_length = elements.lengthSelect.value;
     settings.llm_provider = elements.providerSelect.value;
+    settings.groq_model = elements.groqModelSelect.value;
     settings.ollama_model = elements.modelSelect.value;
 
     try {

@@ -143,7 +143,8 @@ DEFAULT_SETTINGS = {
     "ai_tone": "technical",
     "response_length": "detailed",
     "ollama_model": "llama3:8b",
-    "llm_provider": "groq"
+    "llm_provider": "groq",
+    "groq_model": "llama-3.1-8b-instant"
 }
 
 

@@ -297,13 +297,14 @@ async def generate_answer_with_groq(
     system_prompt: str,
     source_urls: List[str],
     length: str = "detailed",
-    category: str = None
+    category: str = None,
+    model: str = None
 ) -> Tuple[str, List[str]]:
     """Generate an answer using Groq API"""
     if not groq_client:
         return "Groq client not initialized. Check GROQ_API_KEY.", source_urls
 
-    model = LLM_MODEL or DEFAULT_MODELS["groq"]
+    use_model = model or LLM_MODEL or DEFAULT_MODELS["groq"]
 
     product_name = "Creo Parametric" if category == "creo" else "Windchill"
     user_prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
@@ -314,7 +315,7 @@ Provide a helpful, accurate answer. If you reference specific information from t
 
     try:
         response = groq_client.chat.completions.create(
-            model=model,
+            model=use_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -379,6 +380,7 @@ async def generate_answer(
     question: str,
     context_documents: List[Dict],
     model: str = None,
+    groq_model: str = "llama-3.1-8b-instant",
     tone: str = "technical",
     length: str = "detailed",
     category: str = None,
@@ -391,6 +393,8 @@ async def generate_answer(
     """
     # Use passed provider, fall back to env var, then default to groq
     use_provider = provider or LLM_PROVIDER or "groq"
+    # Use passed groq_model, fall back to env var
+    use_groq_model = groq_model or LLM_MODEL or DEFAULT_MODELS["groq"]
 
     # Build context from retrieved documents and collect images
     context_parts = []
@@ -475,7 +479,7 @@ Context from PTC documentation:
 
     # Use selected provider (Groq or Ollama)
     if use_provider == "groq" and groq_client:
-        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length, category)
+        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length, category, use_groq_model)
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
     else:
         ollama_model = model or LLM_MODEL or DEFAULT_MODELS["ollama"]
@@ -557,6 +561,7 @@ def extract_pro_tips(answer: str, question: str) -> Tuple[List[str], str]:
 async def process_question(
     question: str,
     model: str = "llama3:8b",
+    groq_model: str = "llama-3.1-8b-instant",
     tone: str = "technical",
     length: str = "detailed",
     topic_filter: str = None,
@@ -579,6 +584,7 @@ async def process_question(
         question=question,
         context_documents=context_docs,
         model=model,
+        groq_model=groq_model,
         tone=tone,
         length=length,
         category=category,

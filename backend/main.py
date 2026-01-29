@@ -161,6 +161,7 @@ async def ask_question(request: AskRequest):
         settings_records = db.query(Setting).all()
         settings = {record.key: record.value for record in settings_records}
         model = settings.get("ollama_model", "llama3:8b")
+        groq_model = settings.get("groq_model", "llama-3.1-8b-instant")
         tone = settings.get("ai_tone", "technical")
         length = settings.get("response_length", "detailed")
         provider = settings.get("llm_provider", "groq")
@@ -175,6 +176,7 @@ async def ask_question(request: AskRequest):
         result = await process_question(
             question=question_text,
             model=model,
+            groq_model=groq_model,
             tone=tone,
             length=length,
             topic_filter=topic_filter,
@@ -294,6 +296,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
         settings_records = db.query(Setting).all()
         settings = {record.key: record.value for record in settings_records}
         model = settings.get("ollama_model", "llama3:8b")
+        groq_model = settings.get("groq_model", "llama-3.1-8b-instant")
         tone = settings.get("ai_tone", "technical")
         length = settings.get("response_length", "detailed")
         provider = settings.get("llm_provider", "groq")
@@ -302,6 +305,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
         result = await process_question(
             question=question.question_text,
             model=model,
+            groq_model=groq_model,
             tone=tone,
             length=length,
             topic_filter=topic_filter,
@@ -592,7 +596,8 @@ async def get_settings():
             "ai_tone": settings.get("ai_tone", "technical"),
             "response_length": settings.get("response_length", "detailed"),
             "ollama_model": settings.get("ollama_model", "llama2"),
-            "llm_provider": settings.get("llm_provider", "groq")
+            "llm_provider": settings.get("llm_provider", "groq"),
+            "groq_model": settings.get("groq_model", "llama-3.1-8b-instant")
         }
     finally:
         db.close()
@@ -607,7 +612,7 @@ async def update_settings(settings_update: dict):
     db = SessionLocal()
     try:
         # Valid setting keys
-        valid_keys = ["theme", "ai_tone", "response_length", "ollama_model", "llm_provider"]
+        valid_keys = ["theme", "ai_tone", "response_length", "ollama_model", "llm_provider", "groq_model"]
 
         for key, value in settings_update.items():
             if key in valid_keys:
@@ -632,7 +637,8 @@ async def update_settings(settings_update: dict):
                 "ai_tone": settings.get("ai_tone", "technical"),
                 "response_length": settings.get("response_length", "detailed"),
                 "ollama_model": settings.get("ollama_model", "llama2"),
-                "llm_provider": settings.get("llm_provider", "groq")
+                "llm_provider": settings.get("llm_provider", "groq"),
+                "groq_model": settings.get("groq_model", "llama-3.1-8b-instant")
             }
         }
     finally:
