@@ -4,6 +4,7 @@ Handles vector storage with ChromaDB and AI generation with Ollama or Groq
 """
 
 import os
+import re
 import chromadb
 import httpx
 from typing import List, Dict, Optional, Tuple
@@ -380,13 +381,16 @@ async def generate_answer(
     model: str = None,
     tone: str = "technical",
     length: str = "detailed",
-    category: str = None
+    category: str = None,
+    provider: str = None
 ) -> Tuple[str, List[str], List[Dict]]:
     """Generate an answer using the configured LLM provider (Groq or Ollama)
 
     Returns:
         Tuple of (answer_text, source_urls, relevant_images)
     """
+    # Use passed provider, fall back to env var, then default to groq
+    use_provider = provider or LLM_PROVIDER or "groq"
 
     # Build context from retrieved documents and collect images
     context_parts = []
@@ -469,8 +473,8 @@ Context from PTC documentation:
 {context}
 """
 
-    # Use Groq if configured, otherwise fall back to Ollama
-    if LLM_PROVIDER == "groq" and groq_client:
+    # Use selected provider (Groq or Ollama)
+    if use_provider == "groq" and groq_client:
         answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length, category)
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
     else:
@@ -479,22 +483,53 @@ Context from PTC documentation:
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
 
 
-def extract_pro_tips(answer: str, question: str) -> List[str]:
-    """Extract pro tips from the answer or generate relevant ones"""
-    pro_tips = []
+def extract_pro_tips(answer: str, question: str) -> Tuple[List[str], str]:
+    """Extract pro tips from the answer or generate relevant ones.
 
-    # Look for tip patterns in the answer
-    tip_indicators = ["tip:", "note:", "important:", "remember:", "best practice:"]
+    Returns:
+        Tuple of (pro_tips list, cleaned answer text with tips removed)
+    """
+    pro_tips = []
     lines = answer.split('\n')
+    cleaned_lines = []
+    seen_tips = set()
+
     for line in lines:
-        lower_line = line.lower().strip()
-        for indicator in tip_indicators:
-            if indicator in lower_line:
-                # Extract the tip content
-                tip = line.strip()
-                if len(tip) > 10:
-                    pro_tips.append(tip)
-                break
+        line_lower = line.lower().strip()
+
+        # Check if this line contains a pro tip
+        is_tip_line = False
+        tip_content = None
+
+        # Match patterns like "**Pro Tip:**", "Pro Tip:", "- **Pro Tip:**", etc.
+        if 'pro tip' in line_lower or (line_lower.startswith('tip:') or '**tip:**' in line_lower):
+            is_tip_line = True
+            # Extract the tip content after the colon
+            colon_pos = line.find(':')
+            if colon_pos != -1:
+                tip_content = line[colon_pos + 1:].strip()
+                # Remove trailing markdown
+                tip_content = re.sub(r'\*+$', '', tip_content).strip()
+
+        if is_tip_line and tip_content and len(tip_content) > 10:
+            # Normalize for deduplication
+            tip_normalized = ' '.join(tip_content.lower().split())
+            # Also remove common prefixes for better dedup
+            tip_normalized = re.sub(r'^(pro tip[s]?:?\s*)', '', tip_normalized).strip()
+
+            if tip_normalized not in seen_tips:
+                seen_tips.add(tip_normalized)
+                pro_tips.append(f"Pro Tip: {tip_content}")
+            # Don't add this line to cleaned output
+        elif is_tip_line:
+            # It's a tip header without content, skip it
+            pass
+        else:
+            cleaned_lines.append(line)
+
+    cleaned_answer = '\n'.join(cleaned_lines)
+    # Clean up extra whitespace
+    cleaned_answer = re.sub(r'\n{3,}', '\n\n', cleaned_answer).strip()
 
     # If no tips were found in the answer, generate generic relevant tips
     if not pro_tips:
@@ -513,10 +548,10 @@ def extract_pro_tips(answer: str, question: str) -> List[str]:
         elif "pdmlink" in question_lower:
             pro_tips.append("Pro Tip: Use PDMLink's visualization capabilities to review 3D models without CAD software.")
         else:
-            pro_tips.append("Pro Tip: Use keyboard shortcuts in Windchill to speed up your workflow.")
-            pro_tips.append("Pro Tip: Check the Windchill Help Center for the latest documentation updates.")
+            pro_tips.append("Pro Tip: Use keyboard shortcuts to speed up your workflow.")
+            pro_tips.append("Pro Tip: Check the Help Center for the latest documentation updates.")
 
-    return pro_tips[:3]  # Return max 3 tips
+    return pro_tips[:3], cleaned_answer  # Return max 3 tips
 
 
 async def process_question(
@@ -525,7 +560,8 @@ async def process_question(
     tone: str = "technical",
     length: str = "detailed",
     topic_filter: str = None,
-    category: str = None
+    category: str = None,
+    provider: str = None
 ) -> Dict:
     """Main function to process a question through the RAG pipeline"""
 
@@ -545,14 +581,15 @@ async def process_question(
         model=model,
         tone=tone,
         length=length,
-        category=category
+        category=category,
+        provider=provider
     )
 
-    # Step 3: Extract pro tips
-    pro_tips = extract_pro_tips(answer, question)
+    # Step 3: Extract pro tips and clean answer text
+    pro_tips, cleaned_answer = extract_pro_tips(answer, question)
 
     return {
-        "answer_text": answer,
+        "answer_text": cleaned_answer,
         "pro_tips": pro_tips,
         "source_links": source_urls[:5],  # Max 5 source links
         "relevant_images": relevant_images,

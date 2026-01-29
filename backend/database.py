@@ -142,7 +142,8 @@ DEFAULT_SETTINGS = {
     "theme": "light",
     "ai_tone": "technical",
     "response_length": "detailed",
-    "ollama_model": "llama3:8b"
+    "ollama_model": "llama3:8b",
+    "llm_provider": "groq"
 }
 
 

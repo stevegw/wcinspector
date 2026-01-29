@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=7">
+    <link rel="stylesheet" href="/static/css/styles.css?v=8">
 </head>
 <body>
     <!-- Header -->
@@ -179,6 +179,13 @@
                     </select>
                 </div>
                 <div class="setting-group">
+                    <label for="provider-select">LLM Provider</label>
+                    <select id="provider-select">
+                        <option value="groq">Groq (Cloud - Fast)</option>
+                        <option value="ollama">Ollama (Local)</option>
+                    </select>
+                </div>
+                <div class="setting-group">
                     <label for="model-select">Ollama Model</label>
                     <select id="model-select">
                         <!-- Models will be populated by JavaScript -->
@@ -282,6 +289,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=6"></script>
+    <script src="/static/js/app.js?v=7"></script>
 </body>
 </html>

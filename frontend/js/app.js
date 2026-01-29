@@ -13,7 +13,8 @@ let settings = {
     theme: 'light',
     ai_tone: 'technical',
     response_length: 'detailed',
-    ollama_model: 'llama2'
+    ollama_model: 'llama2',
+    llm_provider: 'groq'
 };
 
 // DOM Elements
@@ -59,6 +60,7 @@ const elements = {
     settingsModal: document.getElementById('settings-modal'),
     toneSelect: document.getElementById('tone-select'),
     lengthSelect: document.getElementById('length-select'),
+    providerSelect: document.getElementById('provider-select'),
     modelSelect: document.getElementById('model-select'),
     resetSettingsBtn: document.getElementById('reset-settings-btn'),
     saveSettingsBtn: document.getElementById('save-settings-btn'),
@@ -323,6 +325,9 @@ async function loadSettings() {
 function updateSettingsUI() {
     elements.toneSelect.value = settings.ai_tone;
     elements.lengthSelect.value = settings.response_length;
+    if (settings.llm_provider) {
+        elements.providerSelect.value = settings.llm_provider;
+    }
     if (settings.ollama_model) {
         elements.modelSelect.value = settings.ollama_model;
     }
@@ -331,6 +336,7 @@ function updateSettingsUI() {
 async function saveSettings() {
     settings.ai_tone = elements.toneSelect.value;
     settings.response_length = elements.lengthSelect.value;
+    settings.llm_provider = elements.providerSelect.value;
     settings.ollama_model = elements.modelSelect.value;
 
     try {

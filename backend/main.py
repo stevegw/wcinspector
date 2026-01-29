@@ -163,6 +163,7 @@ async def ask_question(request: AskRequest):
         model = settings.get("ollama_model", "llama3:8b")
         tone = settings.get("ai_tone", "technical")
         length = settings.get("response_length", "detailed")
+        provider = settings.get("llm_provider", "groq")
 
         # Create question record
         question = Question(question_text=question_text)
@@ -177,7 +178,8 @@ async def ask_question(request: AskRequest):
             tone=tone,
             length=length,
             topic_filter=topic_filter,
-            category=category
+            category=category,
+            provider=provider
         )
 
         # Store answer
@@ -294,6 +296,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
         model = settings.get("ollama_model", "llama3:8b")
         tone = settings.get("ai_tone", "technical")
         length = settings.get("response_length", "detailed")
+        provider = settings.get("llm_provider", "groq")
 
         # Process through RAG pipeline again with optional topic filter
         result = await process_question(
@@ -301,7 +304,8 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
             model=model,
             tone=tone,
             length=length,
-            topic_filter=topic_filter
+            topic_filter=topic_filter,
+            provider=provider
         )
 
         # Store new answer
@@ -587,7 +591,8 @@ async def get_settings():
             "theme": settings.get("theme", "light"),
             "ai_tone": settings.get("ai_tone", "technical"),
             "response_length": settings.get("response_length", "detailed"),
-            "ollama_model": settings.get("ollama_model", "llama2")
+            "ollama_model": settings.get("ollama_model", "llama2"),
+            "llm_provider": settings.get("llm_provider", "groq")
         }
     finally:
         db.close()
@@ -602,7 +607,7 @@ async def update_settings(settings_update: dict):
     db = SessionLocal()
     try:
         # Valid setting keys
-        valid_keys = ["theme", "ai_tone", "response_length", "ollama_model"]
+        valid_keys = ["theme", "ai_tone", "response_length", "ollama_model", "llm_provider"]
 
         for key, value in settings_update.items():
             if key in valid_keys:
@@ -626,7 +631,8 @@ async def update_settings(settings_update: dict):
                 "theme": settings.get("theme", "light"),
                 "ai_tone": settings.get("ai_tone", "technical"),
                 "response_length": settings.get("response_length", "detailed"),
-                "ollama_model": settings.get("ollama_model", "llama2")
+                "ollama_model": settings.get("ollama_model", "llama2"),
+                "llm_provider": settings.get("llm_provider", "groq")
             }
         }
     finally:
