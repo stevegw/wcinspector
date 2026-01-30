@@ -33,80 +33,64 @@ A personal knowledge base tool that scrapes PTC documentation (Windchill and Cre
 - **Groq** (cloud) - Fast, requires API key
 - **Ollama** (local) - Private, requires local installation
 
-## Installation
+## Quick Start
 
-### 1. Clone the Repository
+### Windows
+```
+1. Download/clone the repository
+2. Double-click start.bat
+3. Open http://localhost:8000
+```
 
+### Linux/macOS
 ```bash
 git clone https://github.com/stevegw/wcinspector.git
 cd wcinspector
+chmod +x start.sh
+./start.sh
 ```
 
-### 2. Create Virtual Environment
+The startup script automatically:
+- Creates a virtual environment
+- Installs dependencies
+- Creates default config
+- Starts the server
+
+### First Run Setup
+
+1. Edit `backend/.env` to add your **Groq API key** (get one free at https://console.groq.com/keys)
+   - Or set `LLM_PROVIDER=ollama` if you have Ollama installed locally
+2. Click "Manage" in the footer to scrape documentation
+3. Start asking questions!
+
+## Manual Installation
+
+<details>
+<summary>Click to expand manual steps</summary>
 
 ```bash
-# Windows
+# Clone
+git clone https://github.com/stevegw/wcinspector.git
+cd wcinspector
+
+# Virtual environment
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate  # Windows
+# source venv/bin/activate  # Linux/Mac
 
-# Linux/macOS
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
-
-```bash
+# Install
 pip install -r requirements.txt
-```
 
-### 4. Configure Environment
-
-```bash
-# Copy the example environment file
+# Configure
 cp .env.example backend/.env
+# Edit backend/.env with your API key
 
-# Edit backend/.env with your settings
-```
-
-**For Groq (cloud LLM):**
-- Get a free API key at https://console.groq.com/keys
-- Set `LLM_PROVIDER=groq` and add your `GROQ_API_KEY`
-
-**For Ollama (local LLM):**
-- Install Ollama from https://ollama.ai
-- Pull a model: `ollama pull llama3:8b`
-- Set `LLM_PROVIDER=ollama` in your `.env`
-
-### 5. Start the Server
-
-```bash
+# Run
 cd backend
-python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### 6. Open the Application
-
-Navigate to http://localhost:8000 in your browser.
-
-### 7. Initialize Knowledge Base
-
-1. Click "Manage" in the footer
-2. Select a category (Windchill or Creo)
-3. Click "Start Scrape" to index documentation
-
-## Quick Start (Alternative)
-
-If an `init.sh` script is available:
-
-```bash
-# Linux/macOS
-chmod +x init.sh
-./init.sh
-
-# Windows (Git Bash)
-bash init.sh
-```
+</details>
 
 ## Project Structure
 
