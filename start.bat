@@ -15,23 +15,37 @@ echo ========================================
 
 :: Kill any process using the port
 echo Checking for existing server on port %PORT%...
-powershell -Command "Get-NetTCPConnection -LocalPort %PORT% -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping process...' ; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort %PORT% -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" 2>nul
 
 :: Check if venv exists, create if not
-if not exist "%SCRIPT_DIR%\venv\Scripts\python.exe" (
-    echo Creating virtual environment...
-    python -m venv "%SCRIPT_DIR%\venv"
-    echo Installing dependencies (this may take a few minutes)...
-    "%SCRIPT_DIR%\venv\Scripts\pip" install --upgrade pip
-    "%SCRIPT_DIR%\venv\Scripts\pip" install -r "%SCRIPT_DIR%\requirements.txt"
-    if errorlevel 1 (
-        echo.
-        echo ERROR: Failed to install dependencies.
-        echo Please check your internet connection and try again.
-        pause
-        exit /b 1
-    )
-)
+if not exist "%SCRIPT_DIR%\venv\Scripts\python.exe" goto :createvenv
+goto :startvenv
+
+:createvenv
+echo Creating virtual environment...
+python -m venv "%SCRIPT_DIR%\venv"
+if errorlevel 1 goto :venv_error
+echo Installing dependencies (this may take a few minutes)...
+"%SCRIPT_DIR%\venv\Scripts\pip" install --upgrade pip
+"%SCRIPT_DIR%\venv\Scripts\pip" install -r "%SCRIPT_DIR%\requirements.txt"
+if errorlevel 1 goto :install_error
+goto :startvenv
+
+:venv_error
+echo.
+echo ERROR: Failed to create virtual environment.
+echo Make sure Python is installed and in your PATH.
+pause
+exit /b 1
+
+:install_error
+echo.
+echo ERROR: Failed to install dependencies.
+echo Please check your internet connection and try again.
+pause
+exit /b 1
+
+:startvenv
 
 :: Check if .env exists
 if not exist "%SCRIPT_DIR%\backend\.env" (
