@@ -21,8 +21,16 @@ powershell -Command "Get-NetTCPConnection -LocalPort %PORT% -ErrorAction Silentl
 if not exist "%SCRIPT_DIR%\venv\Scripts\python.exe" (
     echo Creating virtual environment...
     python -m venv "%SCRIPT_DIR%\venv"
-    echo Installing dependencies...
+    echo Installing dependencies (this may take a few minutes)...
+    "%SCRIPT_DIR%\venv\Scripts\pip" install --upgrade pip
     "%SCRIPT_DIR%\venv\Scripts\pip" install -r "%SCRIPT_DIR%\requirements.txt"
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Failed to install dependencies.
+        echo Please check your internet connection and try again.
+        pause
+        exit /b 1
+    )
 )
 
 :: Check if .env exists
