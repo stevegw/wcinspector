@@ -1,10 +1,22 @@
 #!/bin/bash
 
+# Default port
+PORT=${1:-8000}
+
 echo "========================================"
-echo "   WCInspector - Starting..."
+echo "   WCInspector"
+echo "   Port: $PORT"
 echo "========================================"
 
 cd "$(dirname "$0")"
+
+# Kill any process using the port
+echo "Checking for existing server on port $PORT..."
+PID=$(lsof -ti:$PORT 2>/dev/null)
+if [ ! -z "$PID" ]; then
+    echo "Stopping existing process (PID: $PID)..."
+    kill -9 $PID 2>/dev/null
+fi
 
 # Check if venv exists, create if not
 if [ ! -f "venv/bin/python" ]; then
@@ -25,9 +37,10 @@ if [ ! -f "backend/.env" ]; then
 fi
 
 # Start the server
-echo "Starting server at http://localhost:8000"
+echo ""
+echo "Starting server at http://localhost:$PORT"
 echo "Press Ctrl+C to stop"
 echo ""
 
 cd backend
-../venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000
+../venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port $PORT

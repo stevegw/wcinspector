@@ -1,11 +1,25 @@
 @echo off
 title WCInspector
 
+:: Default port
+set PORT=8000
+
+:: Check for port argument
+if not "%1"=="" set PORT=%1
+
 echo ========================================
-echo    WCInspector - Starting...
+echo    WCInspector
+echo    Port: %PORT%
 echo ========================================
 
 cd /d "%~dp0"
+
+:: Kill any process using the port
+echo Checking for existing server on port %PORT%...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
+    echo Stopping existing process (PID: %%a)...
+    taskkill /F /PID %%a >nul 2>&1
+)
 
 :: Check if venv exists, create if not
 if not exist "venv\Scripts\python.exe" (
@@ -26,11 +40,12 @@ if not exist "backend\.env" (
 )
 
 :: Start the server
-echo Starting server at http://localhost:8000
+echo.
+echo Starting server at http://localhost:%PORT%
 echo Press Ctrl+C to stop
 echo.
 
 cd backend
-..\venv\Scripts\python -m uvicorn main:app --host 0.0.0.0 --port 8000
+..\venv\Scripts\python -m uvicorn main:app --host 0.0.0.0 --port %PORT%
 
 pause
