@@ -1,10 +1,7 @@
 @echo off
 title WCInspector
 
-:: Default port
 set PORT=8000
-
-:: Check for port argument
 if not "%1"=="" set PORT=%1
 
 echo ========================================
@@ -16,10 +13,7 @@ cd /d "%~dp0"
 
 :: Kill any process using the port
 echo Checking for existing server on port %PORT%...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%PORT%" ^| findstr "LISTENING"') do (
-    echo Stopping existing process (PID: %%a)...
-    taskkill /F /PID %%a >nul 2>&1
-)
+powershell -Command "Get-NetTCPConnection -LocalPort %PORT% -ErrorAction SilentlyContinue | ForEach-Object { Write-Host 'Stopping process...' ; Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"
 
 :: Check if venv exists, create if not
 if not exist "venv\Scripts\python.exe" (
