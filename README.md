@@ -1,15 +1,18 @@
 # WCInspector
 
-A personal knowledge base tool that scrapes PTC Windchill documentation and uses a local AI (Ollama) to provide intelligent, contextual answers to user questions.
+A personal knowledge base tool that scrapes PTC documentation (Windchill and Creo) and uses AI to provide intelligent, contextual answers to user questions.
 
 ## Features
 
-- **AI-Powered Q&A**: Ask questions about Windchill and get intelligent answers sourced from official PTC documentation
-- **Pro Tips**: Get additional insights and links to related Q&As
+- **AI-Powered Q&A**: Ask questions about Windchill or Creo and get intelligent answers sourced from official PTC documentation
+- **Multiple LLM Providers**: Choose between Groq (cloud, fast) or Ollama (local, private)
+- **RAG Pipeline**: Retrieval-Augmented Generation ensures answers are grounded in actual documentation
+- **Pro Tips**: Get additional insights and best practices
 - **Source References**: Access original PTC documentation links for each answer
+- **Image Support**: View relevant diagrams and screenshots from documentation
 - **Question History**: Browse and revisit your previous questions with cached answers
-- **Web Scraper**: Automatically scrape and index PTC Windchill documentation
-- **Customizable Settings**: Adjust AI tone, response length, and theme preferences
+- **Web Scraper**: Automatically scrape and index PTC documentation
+- **Customizable Settings**: Adjust AI tone, response length, LLM provider, and model
 - **Light/Dark Mode**: Switch between themes based on your preference
 
 ## Technology Stack
@@ -17,51 +20,92 @@ A personal knowledge base tool that scrapes PTC Windchill documentation and uses
 ### Frontend
 - Plain HTML/CSS/JavaScript (no build step required)
 - Custom CSS with PTC brand colors
-- Responsive design for desktop, tablet, and mobile
+- Responsive design
 
 ### Backend
 - Python 3.10+
 - FastAPI (REST API framework)
 - SQLite (relational database)
 - ChromaDB (vector database for semantic search)
-- Ollama (local LLM provider)
+- Sentence-Transformers (local embeddings)
 
-## Prerequisites
+### LLM Providers (choose one or both)
+- **Groq** (cloud) - Fast, requires API key
+- **Ollama** (local) - Private, requires local installation
 
-Before running WCInspector, ensure you have:
+## Installation
 
-1. **Python 3.10+** installed
-2. **Ollama** installed and running locally
-   - Download from: https://ollama.ai
-   - Pull at least one model: `ollama pull llama2` or `ollama pull mistral`
-3. **Git** (for version control)
-
-## Quick Start
-
-### Linux/macOS
+### 1. Clone the Repository
 
 ```bash
-# Clone the repository (if applicable)
-cd /path/to/wcinspector
-
-# Make the init script executable
-chmod +x init.sh
-
-# Run the setup and start script
-./init.sh
+git clone https://github.com/stevegw/wcinspector.git
+cd wcinspector
 ```
 
-### Windows
+### 2. Create Virtual Environment
 
-```powershell
-# Navigate to the project directory
-cd C:\AI\wcinspector
+```bash
+# Windows
+python -m venv venv
+venv\Scripts\activate
 
-# Run with Git Bash or WSL
+# Linux/macOS
+python3 -m venv venv
+source venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure Environment
+
+```bash
+# Copy the example environment file
+cp .env.example backend/.env
+
+# Edit backend/.env with your settings
+```
+
+**For Groq (cloud LLM):**
+- Get a free API key at https://console.groq.com/keys
+- Set `LLM_PROVIDER=groq` and add your `GROQ_API_KEY`
+
+**For Ollama (local LLM):**
+- Install Ollama from https://ollama.ai
+- Pull a model: `ollama pull llama3:8b`
+- Set `LLM_PROVIDER=ollama` in your `.env`
+
+### 5. Start the Server
+
+```bash
+cd backend
+python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 6. Open the Application
+
+Navigate to http://localhost:8000 in your browser.
+
+### 7. Initialize Knowledge Base
+
+1. Click "Manage" in the footer
+2. Select a category (Windchill or Creo)
+3. Click "Start Scrape" to index documentation
+
+## Quick Start (Alternative)
+
+If an `init.sh` script is available:
+
+```bash
+# Linux/macOS
+chmod +x init.sh
+./init.sh
+
+# Windows (Git Bash)
 bash init.sh
-
-# Or use the batch file (if available)
-init.bat
 ```
 
 ## Project Structure
@@ -121,14 +165,16 @@ wcinspector/
 
 ## Configuration
 
-Settings are stored in SQLite and can be adjusted via the UI or API:
+Settings are stored in SQLite and can be adjusted via the Settings UI:
 
 | Setting | Options | Default |
 |---------|---------|---------|
 | Theme | light, dark | light |
 | AI Tone | formal, casual, technical | technical |
 | Response Length | brief, detailed | detailed |
-| Ollama Model | (depends on installed models) | llama2 |
+| LLM Provider | groq, ollama | groq |
+| Groq Model | llama-3.1-8b-instant, llama-3.1-70b-versatile, mixtral-8x7b, etc. | llama-3.1-8b-instant |
+| Ollama Model | (depends on installed models) | llama3:8b |
 
 ## Usage
 
@@ -160,17 +206,24 @@ ChromaDB stores document embeddings for semantic search. It's stored in the `chr
 
 ## Troubleshooting
 
+### Groq errors / timeouts
+- Check your API key is valid
+- Verify you have API credits at https://console.groq.com
+- Try a smaller/faster model (llama-3.1-8b-instant)
+
 ### Ollama not responding
 - Ensure Ollama is running: `ollama serve`
 - Check Ollama status: `curl http://localhost:11434/api/tags`
-
-### No models available
-- Pull a model: `ollama pull llama2`
+- Pull a model if needed: `ollama pull llama3:8b`
 
 ### Scraper errors
 - Check network connectivity
 - Verify PTC documentation URL is accessible
 - Review error logs in the application
+
+### No answers / empty responses
+- Ensure you've scraped documentation first (Manage > Start Scrape)
+- Check the selected category matches your question topic
 
 ## License
 
