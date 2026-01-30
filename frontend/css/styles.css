@@ -483,6 +483,58 @@ a:hover { color: var(--accent-hover); }
     margin-bottom: var(--space-lg);
 }
 
+/* Answer Section Titles */
+.answer-section-title {
+    color: var(--accent);
+    font-size: 1rem;
+    font-weight: 600;
+    margin-top: var(--space-lg);
+    margin-bottom: var(--space-sm);
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.answer-section-title:first-child {
+    margin-top: 0;
+}
+
+/* Answer Lists */
+.answer-list {
+    margin: var(--space-sm) 0 var(--space-md) var(--space-lg);
+    padding: 0;
+}
+
+.answer-list li {
+    margin-bottom: var(--space-sm);
+    padding-left: var(--space-sm);
+    line-height: 1.6;
+}
+
+.answer-list li::marker {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Nested content in list items */
+.answer-list li strong {
+    color: var(--text-primary);
+}
+
+/* Inline code in answers */
+.answer-text code {
+    background-color: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+    color: var(--accent);
+}
+
+/* Answer paragraphs */
+.answer-paragraph {
+    display: inline;
+}
+
 /* Pro Tips */
 .pro-tips {
     background-color: var(--bg-tertiary);

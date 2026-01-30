@@ -525,11 +525,81 @@ function showError(message) {
 }
 
 function formatAnswer(text) {
-    // Basic markdown-like formatting
-    return text
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/\n/g, '<br>')
-        .replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Enhanced markdown formatting for better readability
+    let html = text;
+
+    // Escape HTML first (except for our markdown)
+    html = html.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Headers: **Header:** at start of line becomes section header
+    html = html.replace(/^\*\*([^*]+):\*\*/gm, '<h4 class="answer-section-title">$1</h4>');
+
+    // Bold text: **text**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Inline code: `code`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Process lines for lists and paragraphs
+    const lines = html.split('\n');
+    let result = [];
+    let inList = false;
+    let listType = null; // 'ul' or 'ol'
+
+    for (let i = 0; i < lines.length; i++) {
+        let line = lines[i].trim();
+
+        // Numbered list item: 1. or 1)
+        const numberedMatch = line.match(/^(\d+)[.)]\s+(.+)$/);
+        if (numberedMatch) {
+            if (!inList || listType !== 'ol') {
+                if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
+                result.push('<ol class="answer-list">');
+                inList = true;
+                listType = 'ol';
+            }
+            result.push(`<li>${numberedMatch[2]}</li>`);
+            continue;
+        }
+
+        // Bullet list item: - or •
+        const bulletMatch = line.match(/^[-•]\s+(.+)$/);
+        if (bulletMatch) {
+            if (!inList || listType !== 'ul') {
+                if (inList) result.push(listType === 'ul' ? '</ul>' : '</ol>');
+                result.push('<ul class="answer-list">');
+                inList = true;
+                listType = 'ul';
+            }
+            result.push(`<li>${bulletMatch[1]}</li>`);
+            continue;
+        }
+
+        // End list if we hit a non-list line
+        if (inList && line !== '') {
+            result.push(listType === 'ul' ? '</ul>' : '</ol>');
+            inList = false;
+            listType = null;
+        }
+
+        // Empty line = paragraph break
+        if (line === '') {
+            if (result.length > 0 && !result[result.length - 1].match(/<\/(ul|ol|h4)>$/)) {
+                result.push('<br><br>');
+            }
+            continue;
+        }
+
+        // Regular text
+        result.push(`<span class="answer-paragraph">${line}</span><br>`);
+    }
+
+    // Close any open list
+    if (inList) {
+        result.push(listType === 'ul' ? '</ul>' : '</ol>');
+    }
+
+    return result.join('\n');
 }
 
 async function copyAnswer() {
