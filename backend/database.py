@@ -100,6 +100,16 @@ DOC_CATEGORIES = {
         "name": "Creo",
         "base_url": "https://support.ptc.com/help/creo/creo_pma/r12/usascii/",
         "description": "PTC Creo Parametric Documentation"
+    },
+    "community-windchill": {
+        "name": "Windchill Community",
+        "base_url": "https://community.ptc.com/t5/Windchill/bd-p/Windchill",
+        "description": "PTC Community Windchill Discussions"
+    },
+    "community-creo": {
+        "name": "Creo Community",
+        "base_url": "https://community.ptc.com/t5/Creo-Parametric/bd-p/crlounge",
+        "description": "PTC Community Creo Discussions"
     }
 }
 

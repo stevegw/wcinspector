@@ -31,12 +31,26 @@ DOC_CATEGORIES = {
     "windchill": {
         "name": "Windchill",
         "base_url": "https://support.ptc.com/help/windchill/r13.1.2.0/en/",
-        "description": "PTC Windchill PLM Documentation"
+        "description": "PTC Windchill PLM Documentation",
+        "type": "docs"
     },
     "creo": {
         "name": "Creo",
         "base_url": "https://support.ptc.com/help/creo/creo_pma/r12/usascii/",
-        "description": "PTC Creo Parametric Documentation"
+        "description": "PTC Creo Parametric Documentation",
+        "type": "docs"
+    },
+    "community-windchill": {
+        "name": "Windchill Community",
+        "base_url": "https://community.ptc.com/t5/Windchill/bd-p/Windchill",
+        "description": "PTC Community Windchill Discussions",
+        "type": "community"
+    },
+    "community-creo": {
+        "name": "Creo Community",
+        "base_url": "https://community.ptc.com/t5/Creo-Parametric/bd-p/crlounge",
+        "description": "PTC Community Creo Discussions",
+        "type": "community"
     }
 }
 
@@ -145,6 +159,123 @@ def extract_images(html: str, page_url: str, base_url: str) -> list:
         })
 
     return images
+
+
+def extract_community_thread_links(html: str, base_url: str) -> list:
+    """Extract thread links from a PTC Community board page."""
+    soup = BeautifulSoup(html, 'html.parser')
+    threads = []
+
+    # Find all thread links (they have /td-p/ or /m-p/ in the URL)
+    for a_tag in soup.find_all('a', href=True):
+        href = a_tag['href']
+        full_url = urljoin(base_url, href)
+
+        # Match thread URLs: /t5/[Board]/[Title]/td-p/[ID] or /m-p/[ID]
+        if '/td-p/' in full_url or '/m-p/' in full_url:
+            # Skip if it's a reply anchor (#)
+            if '#' in full_url:
+                full_url = full_url.split('#')[0]
+            if full_url not in threads:
+                threads.append(full_url)
+
+    return threads
+
+
+def extract_community_post(html: str, url: str) -> Optional[dict]:
+    """Extract Q&A content from a PTC Community thread page."""
+    soup = BeautifulSoup(html, 'html.parser')
+
+    # Extract thread title
+    title_elem = soup.find('h1', class_='lia-message-subject')
+    if not title_elem:
+        title_elem = soup.find('h1')
+    title = title_elem.get_text(strip=True) if title_elem else "Untitled"
+
+    # Extract all messages (question + replies)
+    messages = []
+
+    # Find all message containers
+    message_containers = soup.find_all('div', class_=lambda c: c and 'lia-message-body' in c)
+
+    for i, container in enumerate(message_containers):
+        # Get message text
+        body = container.find('div', class_='lia-message-body-content')
+        if not body:
+            body = container
+
+        text = body.get_text(separator='\n', strip=True)
+        if not text:
+            continue
+
+        # Check if this is an accepted solution
+        is_solution = False
+        parent = container.find_parent('div', class_=lambda c: c and 'lia-message' in c if c else False)
+        if parent:
+            solution_badge = parent.find(class_=lambda c: c and 'solution' in c.lower() if c else False)
+            is_solution = solution_badge is not None
+
+        # Get author info
+        author_elem = parent.find('a', class_='lia-link-navigation') if parent else None
+        author = author_elem.get_text(strip=True) if author_elem else "Unknown"
+
+        messages.append({
+            'text': text,
+            'is_question': i == 0,
+            'is_solution': is_solution,
+            'author': author
+        })
+
+    if not messages:
+        return None
+
+    # Build structured content
+    question_text = messages[0]['text'] if messages else ""
+    answers = [m for m in messages[1:] if m['text']]
+
+    # Prioritize accepted solutions
+    solution_text = ""
+    for m in answers:
+        if m.get('is_solution'):
+            solution_text = m['text']
+            break
+
+    # Build combined content for indexing
+    content_parts = [f"Question: {question_text}"]
+    if solution_text:
+        content_parts.append(f"Accepted Solution: {solution_text}")
+    for i, ans in enumerate(answers[:3]):  # Limit to top 3 answers
+        if not ans.get('is_solution'):
+            content_parts.append(f"Answer {i+1}: {ans['text'][:1000]}")
+
+    combined_content = "\n\n".join(content_parts)
+
+    # Extract topic/section from URL
+    section = "Community"
+    topic = "Discussion"
+    parsed = urlparse(url)
+    path_parts = [p for p in parsed.path.split('/') if p]
+    if len(path_parts) >= 2:
+        section = path_parts[1]  # e.g., "Windchill"
+        topic = "Q&A"
+
+    return {
+        "url": url,
+        "title": title,
+        "content": combined_content,
+        "section": section,
+        "topic": topic,
+        "has_solution": bool(solution_text),
+        "answer_count": len(answers)
+    }
+
+
+def get_community_page_urls(base_url: str, max_pages: int = 10) -> list:
+    """Generate paginated URLs for a community board."""
+    urls = []
+    for i in range(1, max_pages + 1):
+        urls.append(f"{base_url}/page/{i}")
+    return urls
 
 
 def extract_text_content(html: str) -> str:
@@ -308,6 +439,179 @@ async def scrape_page(session: requests.Session, url: str, category_base_url: st
     return await asyncio.to_thread(scrape_page_sync, session, url, category_base_url)
 
 
+async def run_community_scrape(db_session, max_threads: int = 100, category: str = "community-windchill"):
+    """
+    Run scraping for PTC Community forums.
+
+    Args:
+        db_session: Database session for storing results
+        max_threads: Maximum number of threads to scrape
+        category: Community category (community-windchill, community-creo)
+    """
+    global scraper_state
+    import traceback
+
+    from database import ScrapedPage, ScrapeStats
+
+    if category not in DOC_CATEGORIES:
+        raise ValueError(f"Unknown category: {category}")
+
+    cat_info = DOC_CATEGORIES[category]
+    base_url = cat_info["base_url"]
+    category_name = cat_info["name"]
+
+    scraper_state["in_progress"] = True
+    scraper_state["progress"] = 0
+    scraper_state["status_text"] = f"Starting {category_name} scrape..."
+    scraper_state["pages_scraped"] = 0
+    scraper_state["errors"] = []
+    scraper_state["category"] = category
+
+    start_time = datetime.utcnow()
+    scraped_threads = set()
+    thread_queue = []
+
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    })
+
+    try:
+        # Phase 1: Collect thread URLs from board pages
+        max_board_pages = min(20, max_threads // 5)  # Each page has ~20 threads
+        scraper_state["status_text"] = f"[{category_name}] Collecting thread URLs..."
+
+        for page_num in range(1, max_board_pages + 1):
+            board_url = f"{base_url}/page/{page_num}"
+            scraper_state["current_url"] = board_url
+
+            try:
+                response = session.get(board_url, timeout=30)
+                if response.status_code == 200:
+                    thread_links = extract_community_thread_links(response.text, base_url)
+                    for link in thread_links:
+                        if link not in scraped_threads and link not in thread_queue:
+                            thread_queue.append(link)
+                else:
+                    scraper_state["errors"].append(f"HTTP {response.status_code} for {board_url}")
+            except Exception as e:
+                scraper_state["errors"].append(f"Error fetching {board_url}: {str(e)}")
+
+            await asyncio.sleep(1)  # Be polite to the server
+
+            if len(thread_queue) >= max_threads:
+                break
+
+        scraper_state["total_pages_estimate"] = min(len(thread_queue), max_threads)
+        scraper_state["status_text"] = f"[{category_name}] Found {len(thread_queue)} threads, scraping..."
+
+        # Phase 2: Scrape individual threads
+        threads_scraped = 0
+        for thread_url in thread_queue[:max_threads]:
+            if thread_url in scraped_threads:
+                continue
+
+            scraped_threads.add(thread_url)
+            scraper_state["current_url"] = thread_url
+
+            try:
+                response = session.get(thread_url, timeout=30)
+                if response.status_code == 200:
+                    post_data = extract_community_post(response.text, thread_url)
+
+                    if post_data and post_data.get("content"):
+                        # Store in database
+                        existing = db_session.query(ScrapedPage).filter(ScrapedPage.url == thread_url).first()
+
+                        new_hash = content_hash(post_data["content"])
+
+                        if existing:
+                            if existing.content_hash != new_hash:
+                                existing.title = post_data["title"]
+                                existing.content = post_data["content"]
+                                existing.section = post_data["section"]
+                                existing.topic = post_data["topic"]
+                                existing.category = category
+                                existing.content_hash = new_hash
+                                existing.scraped_at = datetime.utcnow()
+                        else:
+                            new_page = ScrapedPage(
+                                url=post_data["url"],
+                                title=post_data["title"],
+                                content=post_data["content"],
+                                section=post_data["section"],
+                                topic=post_data["topic"],
+                                category=category,
+                                content_hash=new_hash
+                            )
+                            db_session.add(new_page)
+
+                        db_session.commit()
+                        threads_scraped += 1
+                        scraper_state["pages_scraped"] = threads_scraped
+                elif response.status_code == 302:
+                    # Auth required - skip this thread
+                    scraper_state["errors"].append(f"Auth required: {thread_url[:50]}...")
+                else:
+                    scraper_state["errors"].append(f"HTTP {response.status_code}: {thread_url[:50]}...")
+
+            except Exception as e:
+                error_msg = f"Error scraping {thread_url}: {str(e)}"
+                scraper_state["errors"].append(error_msg)
+                log_scraper_error("community_scrape_error", error_msg, traceback.format_exc())
+
+            # Update progress
+            progress = (threads_scraped / max_threads) * 100
+            scraper_state["progress"] = min(progress, 99)
+            scraper_state["status_text"] = f"[{category_name}] Scraped {threads_scraped}/{max_threads} threads..."
+
+            await asyncio.sleep(1.5)  # Be polite - community might rate limit
+
+    finally:
+        session.close()
+
+    # Update stats
+    end_time = datetime.utcnow()
+    duration = int((end_time - start_time).total_seconds())
+
+    total_pages = db_session.query(ScrapedPage).count()
+    stats = db_session.query(ScrapeStats).first()
+    if not stats:
+        stats = ScrapeStats()
+        db_session.add(stats)
+
+    stats.last_full_scrape = end_time
+    stats.total_pages = total_pages
+    stats.scrape_duration = duration
+    db_session.commit()
+
+    # Index in vector store
+    scraper_state["status_text"] = "Indexing community content in vector store..."
+    try:
+        from rag import add_documents_to_vectorstore
+        category_pages = db_session.query(ScrapedPage).filter(ScrapedPage.category == category).all()
+        documents = [
+            {
+                "url": page.url,
+                "title": page.title,
+                "content": page.content,
+                "section": page.section,
+                "topic": page.topic,
+                "category": page.category
+            }
+            for page in category_pages if page.content
+        ]
+
+        await add_documents_to_vectorstore(documents, category=category)
+    except Exception as e:
+        print(f"Error syncing community to vector store: {e}")
+        scraper_state["errors"].append(f"Vector store sync error: {str(e)}")
+
+    scraper_state["progress"] = 100
+    scraper_state["status_text"] = f"Complete! Scraped {scraper_state['pages_scraped']} community threads"
+    scraper_state["in_progress"] = False
+
+
 async def run_scrape(db_session, max_pages: int = 100, category: str = "windchill"):
     """
     Run the scraping process for a specific documentation category
@@ -324,6 +628,11 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
     # Get base URL for category
     if category not in DOC_CATEGORIES:
         raise ValueError(f"Unknown category: {category}. Valid: {list(DOC_CATEGORIES.keys())}")
+
+    # Check if this is a community category
+    cat_info = DOC_CATEGORIES[category]
+    if cat_info.get("type") == "community":
+        return await run_community_scrape(db_session, max_pages, category)
 
     base_url = DOC_CATEGORIES[category]["base_url"]
     category_name = DOC_CATEGORIES[category]["name"]

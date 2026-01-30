@@ -94,7 +94,7 @@ except Exception as e:
     collection = None
 
 # Available documentation categories
-DOC_CATEGORIES = ["windchill", "creo"]
+DOC_CATEGORIES = ["windchill", "creo", "community-windchill", "community-creo"]
 
 # Ollama API settings
 OLLAMA_BASE_URL = "http://localhost:11434"
