@@ -962,6 +962,69 @@ a:hover { color: var(--accent-hover); }
     gap: var(--space-sm);
 }
 
+/* Import Modal */
+.import-instructions {
+    background-color: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-lg);
+}
+
+.import-instructions p {
+    margin-bottom: var(--space-sm);
+}
+
+.import-instructions ol {
+    margin: 0;
+    padding-left: var(--space-lg);
+}
+
+.import-instructions li {
+    margin-bottom: var(--space-xs);
+}
+
+.import-instructions code {
+    background-color: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+}
+
+.import-instructions .folder-path {
+    list-style: none;
+    margin-left: calc(-1 * var(--space-lg));
+    padding: var(--space-sm);
+    background-color: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+    margin-top: var(--space-xs);
+    margin-bottom: var(--space-sm);
+}
+
+.import-options {
+    margin-bottom: var(--space-lg);
+}
+
+.import-options .setting-group {
+    margin-bottom: var(--space-md);
+}
+
+.import-options input[type="text"] {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    font-size: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.import-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+}
+
 /* Confirm Modal */
 .confirm-actions {
     display: flex;

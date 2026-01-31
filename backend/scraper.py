@@ -5,9 +5,11 @@ Scrapes PTC documentation (Windchill, Creo, etc.) and stores in database/vector 
 
 import asyncio
 import hashlib
+import os
 import re
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import Optional, List
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
@@ -51,6 +53,12 @@ DOC_CATEGORIES = {
         "base_url": "https://community.ptc.com/t5/Creo-Parametric/bd-p/crlounge",
         "description": "PTC Community Creo Discussions",
         "type": "community"
+    },
+    "internal-docs": {
+        "name": "Internal Documents",
+        "base_url": "",
+        "description": "Imported Word documents and internal knowledge",
+        "type": "documents"
     }
 }
 
@@ -276,6 +284,213 @@ def get_community_page_urls(base_url: str, max_pages: int = 10) -> list:
     for i in range(1, max_pages + 1):
         urls.append(f"{base_url}/page/{i}")
     return urls
+
+
+def extract_docx_content(file_path: str) -> Optional[dict]:
+    """
+    Extract text content from a Word document (.docx).
+
+    Returns dict with title, content, and metadata.
+    """
+    try:
+        from docx import Document
+        from docx.table import Table
+    except ImportError:
+        print("python-docx not installed. Run: pip install python-docx")
+        return None
+
+    try:
+        doc = Document(file_path)
+        path = Path(file_path)
+
+        # Get title from document properties or filename
+        title = path.stem.replace('_', ' ').replace('-', ' ')
+        if doc.core_properties.title:
+            title = doc.core_properties.title
+
+        # Extract all paragraphs
+        content_parts = []
+
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                # Check if it's a heading
+                if para.style and para.style.name.startswith('Heading'):
+                    content_parts.append(f"\n## {text}\n")
+                else:
+                    content_parts.append(text)
+
+        # Extract tables
+        for table in doc.tables:
+            table_text = []
+            for row in table.rows:
+                row_text = [cell.text.strip() for cell in row.cells]
+                table_text.append(" | ".join(row_text))
+            if table_text:
+                content_parts.append("\n" + "\n".join(table_text) + "\n")
+
+        content = "\n".join(content_parts)
+
+        # Get section from parent folder name
+        section = path.parent.name if path.parent.name != "documents" else "General"
+
+        return {
+            "url": f"file://{path.as_posix()}",
+            "title": title,
+            "content": content,
+            "section": section,
+            "topic": "Document",
+            "filename": path.name
+        }
+    except Exception as e:
+        print(f"Error extracting {file_path}: {e}")
+        return None
+
+
+def find_docx_files(folder_path: str) -> List[str]:
+    """Find all .docx files in a folder and subfolders."""
+    docx_files = []
+    folder = Path(folder_path)
+
+    if not folder.exists():
+        return docx_files
+
+    for file_path in folder.rglob("*.docx"):
+        # Skip temporary files (start with ~$)
+        if file_path.name.startswith("~$"):
+            continue
+        docx_files.append(str(file_path))
+
+    return docx_files
+
+
+async def run_document_import(db_session, folder_path: str = None, category: str = "internal-docs"):
+    """
+    Import Word documents from a folder into the knowledge base.
+
+    Args:
+        db_session: Database session
+        folder_path: Path to folder containing .docx files (default: ./documents)
+        category: Category to assign to imported documents
+    """
+    global scraper_state
+
+    from database import ScrapedPage, ScrapeStats
+
+    # Default to documents folder in project root
+    if not folder_path:
+        folder_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+
+    scraper_state["in_progress"] = True
+    scraper_state["progress"] = 0
+    scraper_state["status_text"] = "Scanning for documents..."
+    scraper_state["pages_scraped"] = 0
+    scraper_state["errors"] = []
+    scraper_state["category"] = category
+
+    start_time = datetime.utcnow()
+
+    # Find all .docx files
+    docx_files = find_docx_files(folder_path)
+
+    if not docx_files:
+        scraper_state["status_text"] = f"No .docx files found in {folder_path}"
+        scraper_state["progress"] = 100
+        scraper_state["in_progress"] = False
+        return
+
+    scraper_state["total_pages_estimate"] = len(docx_files)
+    scraper_state["status_text"] = f"Found {len(docx_files)} documents to import..."
+
+    docs_imported = 0
+
+    for i, file_path in enumerate(docx_files):
+        scraper_state["current_url"] = file_path
+        scraper_state["status_text"] = f"Importing: {Path(file_path).name}..."
+
+        doc_data = extract_docx_content(file_path)
+
+        if doc_data and doc_data.get("content"):
+            # Check if already exists
+            existing = db_session.query(ScrapedPage).filter(
+                ScrapedPage.url == doc_data["url"]
+            ).first()
+
+            new_hash = content_hash(doc_data["content"])
+
+            if existing:
+                if existing.content_hash != new_hash:
+                    existing.title = doc_data["title"]
+                    existing.content = doc_data["content"]
+                    existing.section = doc_data["section"]
+                    existing.topic = doc_data["topic"]
+                    existing.category = category
+                    existing.content_hash = new_hash
+                    existing.scraped_at = datetime.utcnow()
+            else:
+                new_page = ScrapedPage(
+                    url=doc_data["url"],
+                    title=doc_data["title"],
+                    content=doc_data["content"],
+                    section=doc_data["section"],
+                    topic=doc_data["topic"],
+                    category=category,
+                    content_hash=new_hash
+                )
+                db_session.add(new_page)
+
+            db_session.commit()
+            docs_imported += 1
+            scraper_state["pages_scraped"] = docs_imported
+        else:
+            scraper_state["errors"].append(f"Failed to extract: {Path(file_path).name}")
+
+        # Update progress
+        progress = ((i + 1) / len(docx_files)) * 100
+        scraper_state["progress"] = min(progress, 99)
+
+    # Update stats
+    end_time = datetime.utcnow()
+    duration = int((end_time - start_time).total_seconds())
+
+    total_pages = db_session.query(ScrapedPage).count()
+    stats = db_session.query(ScrapeStats).first()
+    if not stats:
+        stats = ScrapeStats()
+        db_session.add(stats)
+
+    stats.last_full_scrape = end_time
+    stats.total_pages = total_pages
+    stats.scrape_duration = duration
+    db_session.commit()
+
+    # Index in vector store
+    scraper_state["status_text"] = "Indexing documents in vector store..."
+    try:
+        from rag import add_documents_to_vectorstore
+        category_pages = db_session.query(ScrapedPage).filter(
+            ScrapedPage.category == category
+        ).all()
+        documents = [
+            {
+                "url": page.url,
+                "title": page.title,
+                "content": page.content,
+                "section": page.section,
+                "topic": page.topic,
+                "category": page.category
+            }
+            for page in category_pages if page.content
+        ]
+
+        await add_documents_to_vectorstore(documents, category=category)
+    except Exception as e:
+        print(f"Error syncing documents to vector store: {e}")
+        scraper_state["errors"].append(f"Vector store sync error: {str(e)}")
+
+    scraper_state["progress"] = 100
+    scraper_state["status_text"] = f"Complete! Imported {docs_imported} documents"
+    scraper_state["in_progress"] = False
 
 
 def extract_text_content(html: str) -> str:

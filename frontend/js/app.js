@@ -87,7 +87,16 @@ const elements = {
     scrapeCategorySelect: document.getElementById('scrape-category-select'),
     scrapeMaxPages: document.getElementById('scrape-max-pages'),
     startScrapeBtn: document.getElementById('start-scrape-btn'),
+    clearCategoryBtn: document.getElementById('clear-category-btn'),
+    importDocsBtn: document.getElementById('import-docs-btn'),
     exportBtn: document.getElementById('export-btn'),
+
+    // Import Modal
+    importModal: document.getElementById('import-modal'),
+    importCategorySelect: document.getElementById('import-category-select'),
+    importCategoryNew: document.getElementById('import-category-new'),
+    importCancelBtn: document.getElementById('import-cancel-btn'),
+    importStartBtn: document.getElementById('import-start-btn'),
     resetKbBtn: document.getElementById('reset-kb-btn'),
 
     // Confirm Modal
@@ -210,7 +219,25 @@ function setupEventListeners() {
     // Scraper
     elements.scraperBtn.addEventListener('click', () => showModal(elements.scraperModal));
     elements.startScrapeBtn.addEventListener('click', startScrape);
+    elements.clearCategoryBtn.addEventListener('click', clearSelectedCategory);
+    elements.importDocsBtn.addEventListener('click', showImportModal);
     elements.exportBtn.addEventListener('click', exportHistory);
+
+    // Import Modal
+    elements.importCancelBtn.addEventListener('click', () => elements.importModal.classList.add('hidden'));
+    elements.importStartBtn.addEventListener('click', startDocumentImport);
+    elements.importCategorySelect.addEventListener('change', () => {
+        // Clear new category input when selecting existing
+        if (elements.importCategorySelect.value) {
+            elements.importCategoryNew.value = '';
+        }
+    });
+    elements.importCategoryNew.addEventListener('input', () => {
+        // Clear dropdown when typing new category
+        if (elements.importCategoryNew.value) {
+            elements.importCategorySelect.value = '';
+        }
+    });
     elements.resetKbBtn.addEventListener('click', () => {
         showConfirm(
             'Reset Knowledge Base',
@@ -725,11 +752,82 @@ async function startScrape() {
         });
         elements.scraperProgress.classList.remove('hidden');
         elements.startScrapeBtn.disabled = true;
+        elements.importDocsBtn.disabled = true;
         const catName = categories[category]?.name || category;
         showToast(`Starting scrape for ${catName} (${maxPages} pages)...`, 'success');
         pollScrapeStatus();
     } catch (error) {
         showToast('Failed to start scrape', 'error');
+    }
+}
+
+function clearSelectedCategory() {
+    const category = elements.scrapeCategorySelect.value;
+    const catName = categories[category]?.name || category;
+
+    showConfirm(
+        'Clear Category',
+        `Are you sure you want to delete all documents from "${catName}"? This cannot be undone.`,
+        async () => {
+            try {
+                const result = await apiRequest(`/category/${category}`, {
+                    method: 'DELETE'
+                });
+                showToast(result.message, 'success');
+                await loadScraperStats();
+            } catch (error) {
+                showToast('Failed to clear category', 'error');
+            }
+        }
+    );
+}
+
+function showImportModal() {
+    // Populate category dropdown with existing categories
+    const categoryOptions = Object.entries(categories).map(([key, cat]) =>
+        `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`
+    ).join('');
+
+    elements.importCategorySelect.innerHTML =
+        '<option value="">-- Select or enter new below --</option>' + categoryOptions;
+
+    // Clear new category input
+    elements.importCategoryNew.value = '';
+
+    // Show the modal
+    showModal(elements.importModal);
+}
+
+async function startDocumentImport() {
+    // Get category from either dropdown or new input
+    let category = elements.importCategoryNew.value.trim();
+    if (!category) {
+        category = elements.importCategorySelect.value;
+    }
+
+    if (!category) {
+        showToast('Please select or enter a category', 'error');
+        return;
+    }
+
+    // Close import modal, show scraper modal with progress
+    elements.importModal.classList.add('hidden');
+    showModal(elements.scraperModal);
+
+    try {
+        await apiRequest('/scraper/import-docs', {
+            method: 'POST',
+            body: JSON.stringify({ category })
+        });
+        elements.scraperProgress.classList.remove('hidden');
+        elements.progressText.textContent = `Importing documents as "${category}"...`;
+        elements.progressFill.style.width = '0%';
+        elements.startScrapeBtn.disabled = true;
+        elements.importDocsBtn.disabled = true;
+        showToast(`Importing documents as "${category}"...`, 'success');
+        pollScrapeStatus();
+    } catch (error) {
+        showToast('Failed to start document import', 'error');
     }
 }
 
@@ -739,18 +837,20 @@ async function pollScrapeStatus() {
 
         if (data.in_progress) {
             elements.progressFill.style.width = `${data.progress || 0}%`;
-            elements.progressText.textContent = data.status_text || 'Scraping...';
+            elements.progressText.textContent = data.status_text || 'Processing...';
             setTimeout(pollScrapeStatus, 2000);
         } else {
             elements.scraperProgress.classList.add('hidden');
             elements.startScrapeBtn.disabled = false;
+            elements.importDocsBtn.disabled = false;
             await loadScraperStats();
-            showToast('Scraping complete', 'success');
+            showToast('Complete!', 'success');
         }
     } catch (error) {
         elements.scraperProgress.classList.add('hidden');
         elements.startScrapeBtn.disabled = false;
-        showToast('Scrape status check failed', 'error');
+        elements.importDocsBtn.disabled = false;
+        showToast('Status check failed', 'error');
     }
 }
 

@@ -419,6 +419,45 @@ async def reset_knowledge_base():
         db.close()
 
 
+@app.delete("/api/category/{category}")
+async def clear_category(category: str):
+    """Clear all documents from a specific category"""
+    from database import SessionLocal, ScrapedPage, ScrapedImage
+    from rag import delete_category_from_vectorstore
+
+    db = SessionLocal()
+    try:
+        # Get count before deletion
+        count = db.query(ScrapedPage).filter(ScrapedPage.category == category).count()
+
+        if count == 0:
+            return {"status": "warning", "message": f"No documents found in category: {category}"}
+
+        # Delete images associated with pages in this category
+        pages = db.query(ScrapedPage).filter(ScrapedPage.category == category).all()
+        page_ids = [p.id for p in pages]
+        if page_ids:
+            db.query(ScrapedImage).filter(ScrapedImage.page_id.in_(page_ids)).delete(synchronize_session=False)
+
+        # Delete pages in this category
+        db.query(ScrapedPage).filter(ScrapedPage.category == category).delete()
+        db.commit()
+
+        # Also clear from vector store
+        try:
+            await delete_category_from_vectorstore(category)
+        except Exception as e:
+            print(f"Warning: Could not clear vector store for {category}: {e}")
+
+        return {
+            "status": "success",
+            "message": f"Cleared {count} documents from category: {category}",
+            "deleted_count": count
+        }
+    finally:
+        db.close()
+
+
 # ============== Topics API Endpoints ==============
 
 @app.get("/api/topics")
@@ -571,6 +610,38 @@ async def start_targeted_scrape(section: str = None, max_pages: int = 20):
         "status": "started",
         "message": f"Targeted scrape started for section: {section or 'all'}",
         "max_pages": max_pages
+    }
+
+
+class ImportDocsRequest(BaseModel):
+    folder_path: Optional[str] = None
+    category: Optional[str] = "internal-docs"
+
+
+@app.post("/api/scraper/import-docs")
+async def import_documents(request: ImportDocsRequest = None):
+    """Import Word documents from a folder into the knowledge base"""
+    from scraper import get_scraper_state, run_document_import
+    from database import SessionLocal
+    import asyncio
+
+    # Check if already scraping
+    state = get_scraper_state()
+    if state["in_progress"]:
+        return {"status": "error", "message": "Import/scrape already in progress"}
+
+    folder_path = request.folder_path if request else None
+    category = request.category if request and request.category else "internal-docs"
+
+    # Start import in background
+    db = SessionLocal()
+    asyncio.create_task(run_document_import(db, folder_path, category))
+
+    return {
+        "status": "started",
+        "message": f"Document import started for category: {category}",
+        "folder": folder_path or "default (./documents)",
+        "category": category
     }
 
 

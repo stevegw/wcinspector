@@ -94,7 +94,7 @@ except Exception as e:
     collection = None
 
 # Available documentation categories
-DOC_CATEGORIES = ["windchill", "creo", "community-windchill", "community-creo"]
+DOC_CATEGORIES = ["windchill", "creo", "community-windchill", "community-creo", "internal-docs"]
 
 # Ollama API settings
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -231,6 +231,40 @@ async def add_documents_to_vectorstore(documents: List[Dict], category: str = "w
             print(f"Error adding batch: {e}")
 
     return added
+
+
+async def delete_category_from_vectorstore(category: str) -> int:
+    """Delete all documents from a category in the vector store"""
+    if collection is None:
+        print("No vector store collection available")
+        return 0
+
+    try:
+        # Get all document IDs for this category
+        results = collection.get(
+            where={"category": category},
+            include=[]  # Only need IDs
+        )
+
+        if results and results.get("ids"):
+            ids_to_delete = results["ids"]
+            count = len(ids_to_delete)
+
+            # Delete in batches to avoid issues with large deletions
+            batch_size = 100
+            for i in range(0, len(ids_to_delete), batch_size):
+                batch = ids_to_delete[i:i + batch_size]
+                collection.delete(ids=batch)
+
+            print(f"Deleted {count} chunks from vector store for category: {category}")
+            return count
+        else:
+            print(f"No chunks found in vector store for category: {category}")
+            return 0
+
+    except Exception as e:
+        print(f"Error deleting category from vector store: {e}")
+        return 0
 
 
 async def search_similar_documents(query: str, n_results: int = 5, topic_filter: str = None, category: str = None) -> List[Dict]:

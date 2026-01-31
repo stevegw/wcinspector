@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=11">
+    <link rel="stylesheet" href="/static/css/styles.css?v=15">
 </head>
 <body>
     <!-- Header -->
@@ -249,6 +249,7 @@
                             <select id="scrape-category-select">
                                 <!-- Categories will be populated by JavaScript -->
                             </select>
+                            <button id="clear-category-btn" class="btn btn-small btn-danger" title="Clear this category">Clear</button>
                         </div>
                         <div class="scrape-option-group">
                             <label for="scrape-max-pages">Max pages:</label>
@@ -256,8 +257,47 @@
                         </div>
                     </div>
                     <button id="start-scrape-btn" class="btn btn-primary">Start Scrape</button>
+                    <button id="import-docs-btn" class="btn btn-secondary">Import Documents</button>
                     <button id="export-btn" class="btn btn-secondary">Export Q&A History</button>
                     <button id="reset-kb-btn" class="btn btn-danger">Reset Knowledge Base</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Documents Modal -->
+    <div class="modal hidden" id="import-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Import Word Documents</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="import-instructions">
+                    <p><strong>Instructions:</strong></p>
+                    <ol>
+                        <li>Place your <code>.docx</code> files in the documents folder:</li>
+                        <li class="folder-path"><code>C:\AI\wcinspector\documents\</code></li>
+                        <li>Subfolders will be used as "sections" for organization</li>
+                        <li>Select or enter a category below</li>
+                        <li>Click "Start Import" to begin</li>
+                    </ol>
+                </div>
+                <div class="import-options">
+                    <div class="setting-group">
+                        <label for="import-category-select">Existing Category:</label>
+                        <select id="import-category-select">
+                            <option value="">-- Select or enter new below --</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label for="import-category-new">Or New Category:</label>
+                        <input type="text" id="import-category-new" placeholder="e.g., training, best-practices">
+                    </div>
+                </div>
+                <div class="import-actions">
+                    <button id="import-cancel-btn" class="btn btn-secondary">Cancel</button>
+                    <button id="import-start-btn" class="btn btn-primary">Start Import</button>
                 </div>
             </div>
         </div>
@@ -295,6 +335,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=10"></script>
+    <script src="/static/js/app.js?v=15"></script>
 </body>
 </html>
