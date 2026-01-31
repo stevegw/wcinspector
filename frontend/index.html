@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=16">
+    <link rel="stylesheet" href="/static/css/styles.css?v=19">
 </head>
 <body>
     <!-- Header -->
@@ -270,25 +270,30 @@
 
     <!-- Import Documents Modal -->
     <div class="modal hidden" id="import-modal">
-        <div class="modal-content">
+        <div class="modal-content modal-wide">
             <div class="modal-header">
                 <h2>Import Word Documents</h2>
                 <button class="modal-close" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="import-instructions">
-                    <p><strong>Instructions:</strong></p>
-                    <ol>
-                        <li>Place your <code>.docx</code> files in the documents folder:</li>
-                        <li class="folder-path"><code>C:\AI\wcinspector\documents\</code></li>
-                        <li>Subfolders will be used as "sections" for organization</li>
-                        <li>Select or enter a category below</li>
-                        <li>Click "Start Import" to begin</li>
-                    </ol>
+                <div class="folder-browser">
+                    <div class="browser-nav">
+                        <button id="browser-up-btn" class="btn btn-small" title="Go up">↑ Up</button>
+                        <input type="text" id="browser-path" class="browser-path-input" placeholder="Enter path..." readonly>
+                    </div>
+                    <div class="browser-drives" id="browser-drives">
+                        <!-- Drives will be populated by JavaScript -->
+                    </div>
+                    <div class="browser-content" id="browser-content">
+                        <!-- Folders and files will be populated by JavaScript -->
+                    </div>
+                    <div class="browser-selected">
+                        <span id="browser-file-count">0 documents found</span>
+                    </div>
                 </div>
                 <div class="import-options">
                     <div class="setting-group">
-                        <label for="import-category-select">Existing Category:</label>
+                        <label for="import-category-select">Category:</label>
                         <select id="import-category-select">
                             <option value="">-- Select or enter new below --</option>
                         </select>
@@ -300,7 +305,7 @@
                 </div>
                 <div class="import-actions">
                     <button id="import-cancel-btn" class="btn btn-secondary">Cancel</button>
-                    <button id="import-start-btn" class="btn btn-primary">Start Import</button>
+                    <button id="import-start-btn" class="btn btn-primary">Import Documents</button>
                 </div>
             </div>
         </div>
@@ -338,6 +343,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=16"></script>
+    <script src="/static/js/app.js?v=29"></script>
 </body>
 </html>

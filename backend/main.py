@@ -100,6 +100,7 @@ async def get_categories():
     from scraper import DOC_CATEGORIES
     from rag import get_vectorstore_stats
     from database import SessionLocal, ScrapedPage
+    from sqlalchemy import distinct
 
     db = SessionLocal()
     try:
@@ -108,6 +109,8 @@ async def get_categories():
 
         # Return as a dict keyed by category id for frontend compatibility
         categories = {}
+
+        # Add predefined categories
         for key, info in DOC_CATEGORIES.items():
             # Count pages in database for this category
             page_count = db.query(ScrapedPage).filter(ScrapedPage.category == key).count()
@@ -120,6 +123,24 @@ async def get_categories():
                 "pages_scraped": page_count,
                 "chunks_indexed": chunk_count
             }
+
+        # Add any custom categories found in the database that aren't predefined
+        db_categories = db.query(distinct(ScrapedPage.category)).all()
+        for (cat_key,) in db_categories:
+            if cat_key and cat_key not in categories:
+                page_count = db.query(ScrapedPage).filter(ScrapedPage.category == cat_key).count()
+                chunk_count = vs_stats.get("categories", {}).get(cat_key, 0)
+
+                # Create a display name from the category key
+                display_name = cat_key.replace("-", " ").replace("_", " ").title()
+
+                categories[cat_key] = {
+                    "name": display_name,
+                    "description": f"Custom category: {display_name}",
+                    "base_url": "",
+                    "pages_scraped": page_count,
+                    "chunks_indexed": chunk_count
+                }
 
         return {
             "categories": categories,
@@ -496,6 +517,7 @@ async def get_scraper_stats():
     from database import SessionLocal, ScrapeStats, ScrapedPage
     from rag import get_vectorstore_stats
     from scraper import DOC_CATEGORIES
+    from sqlalchemy import distinct
 
     db = SessionLocal()
     try:
@@ -508,9 +530,17 @@ async def get_scraper_stats():
         vs_stats = get_vectorstore_stats()
         total_chunks = vs_stats.get("count", 0)
 
-        # Get per-category stats
+        # Get per-category stats - include both predefined and custom categories
         by_category = {}
-        for cat_key in DOC_CATEGORIES.keys():
+
+        # Get all unique categories from the database
+        db_categories = db.query(distinct(ScrapedPage.category)).all()
+        all_categories = set(DOC_CATEGORIES.keys())
+        for (cat_key,) in db_categories:
+            if cat_key:
+                all_categories.add(cat_key)
+
+        for cat_key in all_categories:
             cat_pages = db.query(ScrapedPage).filter(ScrapedPage.category == cat_key).count()
             cat_chunks = vs_stats.get("categories", {}).get(cat_key, 0)
             by_category[cat_key] = {
@@ -627,6 +657,76 @@ class ImportDocsRequest(BaseModel):
     category: Optional[str] = "internal-docs"
 
 
+@app.get("/api/browse-folders")
+async def browse_folders(path: str = None):
+    """Browse folders on the server for document import"""
+    import platform
+    from pathlib import Path
+
+    result = {
+        "current_path": "",
+        "parent_path": None,
+        "folders": [],
+        "files": [],
+        "drives": []
+    }
+
+    # Default to documents folder
+    documents_folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
+
+    # Handle "default" as special case for documents folder
+    if path == "default" or not path:
+        path = documents_folder
+        # Create documents folder if it doesn't exist
+        if not os.path.exists(path):
+            os.makedirs(path)
+
+    try:
+        folder = Path(path)
+        if not folder.exists():
+            return {"error": f"Path does not exist: {path}"}
+
+        if not folder.is_dir():
+            return {"error": f"Path is not a directory: {path}"}
+
+        result["current_path"] = str(folder.resolve())
+
+        # Get parent path
+        parent = folder.parent
+        if parent != folder:  # Not at root
+            result["parent_path"] = str(parent.resolve())
+
+        # List folders and .docx files
+        folders = []
+        files = []
+
+        try:
+            for item in sorted(folder.iterdir()):
+                if item.name.startswith('.') or item.name.startswith('~$'):
+                    continue
+                if item.is_dir():
+                    folders.append({
+                        "name": item.name,
+                        "path": str(item.resolve())
+                    })
+                elif item.suffix.lower() == '.docx':
+                    files.append({
+                        "name": item.name,
+                        "path": str(item.resolve()),
+                        "size": item.stat().st_size
+                    })
+        except PermissionError:
+            return {"error": f"Permission denied: {path}"}
+
+        result["folders"] = folders
+        result["files"] = files
+
+    except Exception as e:
+        return {"error": str(e)}
+
+    return result
+
+
 @app.post("/api/scraper/import-docs")
 async def import_documents(request: ImportDocsRequest = None):
     """Import Word documents from a folder into the knowledge base"""
@@ -641,6 +741,8 @@ async def import_documents(request: ImportDocsRequest = None):
 
     folder_path = request.folder_path if request else None
     category = request.category if request and request.category else "internal-docs"
+
+    print(f"[DEBUG] Import request - folder_path: {folder_path}, category: {category}")
 
     # Start import in background
     db = SessionLocal()

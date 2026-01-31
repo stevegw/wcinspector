@@ -394,6 +394,8 @@ async def run_document_import(db_session, folder_path: str = None, category: str
     if not folder_path:
         folder_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
 
+    print(f"[DEBUG] run_document_import - folder_path: {folder_path}, category: {category}")
+
     scraper_state["in_progress"] = True
     scraper_state["progress"] = 0
     scraper_state["status_text"] = "Scanning for documents..."
@@ -439,14 +441,14 @@ async def run_document_import(db_session, folder_path: str = None, category: str
             new_hash = content_hash(doc_data["content"])
 
             if existing:
-                if existing.content_hash != new_hash:
-                    existing.title = doc_data["title"]
-                    existing.content = doc_data["content"]
-                    existing.section = doc_data["section"]
-                    existing.topic = doc_data["topic"]
-                    existing.category = category
-                    existing.content_hash = new_hash
-                    existing.scraped_at = datetime.utcnow()
+                # Always update category and other fields when re-importing
+                existing.title = doc_data["title"]
+                existing.content = doc_data["content"]
+                existing.section = doc_data["section"]
+                existing.topic = doc_data["topic"]
+                existing.category = category
+                existing.content_hash = new_hash
+                existing.scraped_at = datetime.utcnow()
             else:
                 new_page = ScrapedPage(
                     url=doc_data["url"],

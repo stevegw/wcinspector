@@ -649,9 +649,21 @@ def get_vectorstore_stats() -> Dict:
     try:
         total_count = collection.count()
 
+        # Get all unique categories from the vector store
+        all_categories = set(DOC_CATEGORIES)
+        try:
+            # Get all documents to find unique categories
+            all_docs = collection.get(include=["metadatas"])
+            if all_docs and all_docs.get("metadatas"):
+                for meta in all_docs["metadatas"]:
+                    if meta and meta.get("category"):
+                        all_categories.add(meta["category"])
+        except:
+            pass
+
         # Get count per category
         category_counts = {}
-        for cat in DOC_CATEGORIES:
+        for cat in all_categories:
             try:
                 result = collection.get(where={"category": cat}, include=[])
                 category_counts[cat] = len(result["ids"]) if result else 0

@@ -9,6 +9,10 @@ const API_BASE = '/api';
 // State
 let currentQuestionId = null;
 let categories = {};
+let importJustStarted = false;  // Flag to prevent premature progress hiding
+let importWaitCount = 0;        // Counter for waiting for import to start
+let currentBrowserPath = null;  // Current folder browser path
+let currentBrowserFiles = [];   // Files in current folder
 let settings = {
     theme: 'light',
     ai_tone: 'technical',
@@ -99,6 +103,11 @@ const elements = {
     importCancelBtn: document.getElementById('import-cancel-btn'),
     importStartBtn: document.getElementById('import-start-btn'),
     resetKbBtn: document.getElementById('reset-kb-btn'),
+    browserUpBtn: document.getElementById('browser-up-btn'),
+    browserPath: document.getElementById('browser-path'),
+    browserDrives: document.getElementById('browser-drives'),
+    browserContent: document.getElementById('browser-content'),
+    browserFileCount: document.getElementById('browser-file-count'),
 
     // Confirm Modal
     confirmModal: document.getElementById('confirm-modal'),
@@ -157,6 +166,9 @@ async function init() {
 
     // Load scraper stats
     await loadScraperStats();
+
+    // Check if scrape/import is in progress and resume polling
+    await checkScraperStatus();
 
     // Load available models
     await loadModels();
@@ -247,6 +259,9 @@ function setupEventListeners() {
             resetKnowledgeBase
         );
     });
+
+    // Folder Browser
+    elements.browserUpBtn.addEventListener('click', browserGoUp);
 
     // Modal Close Buttons
     document.querySelectorAll('.modal-close').forEach(btn => {
@@ -744,6 +759,27 @@ async function loadScraperStats() {
     }
 }
 
+async function checkScraperStatus() {
+    // Check if a scrape/import is already in progress (e.g., after page refresh)
+    try {
+        const data = await apiRequest('/scraper/status');
+        if (data.in_progress) {
+            // Open the scraper modal and show progress UI
+            showModal(elements.scraperModal);
+            elements.scraperProgress.classList.remove('hidden');
+            elements.progressFill.style.width = `${data.progress || 0}%`;
+            elements.progressText.textContent = data.status_text || 'Processing...';
+            elements.startScrapeBtn.disabled = true;
+            elements.importDocsBtn.disabled = true;
+            elements.cancelScrapeBtn.classList.remove('hidden');
+            // Resume polling
+            pollScrapeStatus();
+        }
+    } catch (error) {
+        console.error('Failed to check scraper status:', error);
+    }
+}
+
 function startScrape() {
     const category = elements.scrapeCategorySelect.value;
     const maxPages = parseInt(elements.scrapeMaxPages.value) || 1500;
@@ -753,18 +789,30 @@ function startScrape() {
         'Start Scrape',
         `Start scraping "${catName}" (up to ${maxPages} pages)? This may take a while.`,
         async () => {
+            // Show progress UI immediately
+            elements.scraperProgress.classList.remove('hidden');
+            elements.progressText.textContent = `Starting scrape for "${catName}"...`;
+            elements.progressFill.style.width = '0%';
+            elements.startScrapeBtn.disabled = true;
+            elements.importDocsBtn.disabled = true;
+            elements.cancelScrapeBtn.classList.remove('hidden');
+
+            // Give browser a frame to repaint
+            await new Promise(resolve => requestAnimationFrame(resolve));
+
             try {
                 await apiRequest('/scraper/start', {
                     method: 'POST',
                     body: JSON.stringify({ category, max_pages: maxPages })
                 });
-                elements.scraperProgress.classList.remove('hidden');
-                elements.startScrapeBtn.disabled = true;
-                elements.importDocsBtn.disabled = true;
-                elements.cancelScrapeBtn.classList.remove('hidden');
                 showToast(`Starting scrape for ${catName}...`, 'success');
                 pollScrapeStatus();
             } catch (error) {
+                // Reset UI on failure
+                elements.scraperProgress.classList.add('hidden');
+                elements.startScrapeBtn.disabled = false;
+                elements.importDocsBtn.disabled = false;
+                elements.cancelScrapeBtn.classList.add('hidden');
                 showToast('Failed to start scrape', 'error');
             }
         }
@@ -792,7 +840,7 @@ function clearSelectedCategory() {
     );
 }
 
-function showImportModal() {
+async function showImportModal() {
     // Populate category dropdown with existing categories
     const categoryOptions = Object.entries(categories).map(([key, cat]) =>
         `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`
@@ -804,11 +852,116 @@ function showImportModal() {
     // Clear new category input
     elements.importCategoryNew.value = '';
 
+    // Reset browser state
+    currentBrowserPath = null;
+    currentBrowserFiles = [];
+
     // Show the modal
     showModal(elements.importModal);
+
+    // Load initial folder view - default to documents folder
+    await browseFolder('default');
 }
 
-async function startDocumentImport() {
+async function browseFolder(path) {
+    elements.browserContent.innerHTML = '<div class="browser-loading">Loading...</div>';
+
+    try {
+        const url = path ? `/browse-folders?path=${encodeURIComponent(path)}` : '/browse-folders';
+        const data = await apiRequest(url);
+
+        if (data.error) {
+            elements.browserContent.innerHTML = `<div class="browser-loading">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+
+        currentBrowserPath = data.current_path;
+        currentBrowserFiles = data.files || [];
+
+        // Update path display
+        elements.browserPath.value = data.current_path || 'Select a drive';
+
+        // Show drives if available
+        if (data.drives && data.drives.length > 0) {
+            elements.browserDrives.innerHTML = data.drives.map(drive =>
+                `<button class="drive-btn" data-path="${escapeHtml(drive.path)}">${escapeHtml(drive.name)}</button>`
+            ).join('');
+            // Add click handlers
+            elements.browserDrives.querySelectorAll('.drive-btn').forEach(btn => {
+                btn.addEventListener('click', () => browseFolder(btn.dataset.path));
+            });
+        } else {
+            elements.browserDrives.innerHTML = '';
+        }
+
+        // Build folder/file list
+        let html = '';
+
+        // Folders
+        if (data.folders && data.folders.length > 0) {
+            html += data.folders.map(folder =>
+                `<div class="browser-item folder" data-path="${escapeHtml(folder.path)}">${escapeHtml(folder.name)}</div>`
+            ).join('');
+        }
+
+        // Files
+        if (data.files && data.files.length > 0) {
+            html += data.files.map(file =>
+                `<div class="browser-item file">${escapeHtml(file.name)}</div>`
+            ).join('');
+        }
+
+        if (!html) {
+            html = '<div class="browser-loading">No folders or .docx files found</div>';
+        }
+
+        elements.browserContent.innerHTML = html;
+
+        // Add click handlers to folders
+        elements.browserContent.querySelectorAll('.browser-item.folder').forEach(item => {
+            item.addEventListener('click', () => browseFolder(item.dataset.path));
+        });
+
+        // Update file count
+        const fileCount = data.files ? data.files.length : 0;
+        elements.browserFileCount.textContent = fileCount === 1
+            ? '1 document found'
+            : `${fileCount} documents found`;
+
+        // Auto-suggest category from folder name
+        if (data.current_path && !elements.importCategoryNew.value && !elements.importCategorySelect.value) {
+            const folderName = data.current_path.split(/[/\\]/).pop();
+            if (folderName && folderName !== 'documents') {
+                elements.importCategoryNew.value = folderName;
+            }
+        }
+
+    } catch (error) {
+        elements.browserContent.innerHTML = `<div class="browser-loading">Error loading folder</div>`;
+    }
+}
+
+
+function browserGoUp() {
+    if (currentBrowserPath) {
+        const parts = currentBrowserPath.split(/[/\\]/);
+        if (parts.length > 1) {
+            parts.pop();
+            const parentPath = parts.join('\\') || parts.join('/');
+            if (parentPath) {
+                browseFolder(parentPath);
+            } else {
+                // Go back to drive selection
+                browseFolder(null);
+            }
+        } else {
+            // At root, show drives
+            browseFolder(null);
+        }
+    }
+}
+
+function startDocumentImport() {
     // Get category from either dropdown or new input
     let category = elements.importCategoryNew.value.trim();
     if (!category) {
@@ -820,24 +973,108 @@ async function startDocumentImport() {
         return;
     }
 
-    // Close import modal, show scraper modal with progress
+    // Check if a folder with documents is selected
+    if (!currentBrowserPath) {
+        showToast('Please select a folder first', 'error');
+        return;
+    }
+
+    if (currentBrowserFiles.length === 0) {
+        showToast('No .docx files in selected folder', 'error');
+        return;
+    }
+
+    // Close import modal, show scraper modal with progress FIRST
     elements.importModal.classList.add('hidden');
     showModal(elements.scraperModal);
 
-    try {
-        await apiRequest('/scraper/import-docs', {
-            method: 'POST',
-            body: JSON.stringify({ category })
+    // Show progress UI with indeterminate animation
+    elements.scraperProgress.classList.remove('hidden');
+    elements.progressText.textContent = `Importing ${currentBrowserFiles.length} document(s) as "${category}"...`;
+    elements.progressFill.style.width = '';
+    elements.progressFill.classList.add('indeterminate');
+    elements.startScrapeBtn.disabled = true;
+    elements.importDocsBtn.disabled = true;
+    elements.cancelScrapeBtn.classList.remove('hidden');
+
+    // Set flag to prevent pollScrapeStatus from hiding progress too early
+    importJustStarted = true;
+    importWaitCount = 0;
+
+    const folderPath = currentBrowserPath;
+
+    // Double RAF to ensure paint happens before fetch
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            // Use raw fetch - fire and forget
+            fetch(`${API_BASE}/scraper/import-docs`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ category, folder_path: folderPath })
+            }).then(response => {
+                if (response.ok) {
+                    showToast(`Importing documents as "${category}"...`, 'success');
+                } else {
+                    importJustStarted = false;
+                    showToast('Failed to start document import', 'error');
+                }
+            }).catch(() => {
+                importJustStarted = false;
+                showToast('Failed to start document import', 'error');
+            });
+
+            // Start polling after a delay to let the backend start
+            setTimeout(() => {
+                pollImportStatus();
+            }, 500);
         });
-        elements.scraperProgress.classList.remove('hidden');
-        elements.progressText.textContent = `Importing documents as "${category}"...`;
-        elements.progressFill.style.width = '0%';
-        elements.startScrapeBtn.disabled = true;
-        elements.importDocsBtn.disabled = true;
-        showToast(`Importing documents as "${category}"...`, 'success');
-        pollScrapeStatus();
+    });
+}
+
+async function pollImportStatus() {
+    try {
+        const data = await apiRequest('/scraper/status');
+
+        if (data.in_progress) {
+            // Reset wait counter since import has started
+            importJustStarted = false;
+            importWaitCount = 0;
+            // Update text but keep indeterminate animation
+            elements.progressText.textContent = data.status_text || 'Working...';
+            setTimeout(pollImportStatus, 1000);
+        } else if (importJustStarted && importWaitCount < 10) {
+            // Import might not have started yet, keep waiting (max 5 seconds)
+            importWaitCount++;
+            elements.progressText.textContent = 'Starting import...';
+            setTimeout(pollImportStatus, 500);
+        } else {
+            // Reset flags
+            importJustStarted = false;
+            importWaitCount = 0;
+            // Import complete - remove indeterminate animation
+            elements.progressFill.classList.remove('indeterminate');
+            elements.progressFill.style.width = '100%';
+            elements.progressText.textContent = data.status_text || 'Complete!';
+
+            // Show completion for a moment before hiding
+            setTimeout(async () => {
+                elements.scraperProgress.classList.add('hidden');
+                elements.cancelScrapeBtn.classList.add('hidden');
+                elements.startScrapeBtn.disabled = false;
+                elements.importDocsBtn.disabled = false;
+                elements.progressFill.style.width = '0%';
+                await loadScraperStats();
+                await loadCategories();
+                showToast('Import complete!', 'success');
+            }, 1500);
+        }
     } catch (error) {
-        showToast('Failed to start document import', 'error');
+        elements.progressFill.classList.remove('indeterminate');
+        elements.scraperProgress.classList.add('hidden');
+        elements.cancelScrapeBtn.classList.add('hidden');
+        elements.startScrapeBtn.disabled = false;
+        elements.importDocsBtn.disabled = false;
+        showToast('Status check failed', 'error');
     }
 }
 
@@ -856,6 +1093,7 @@ async function pollScrapeStatus() {
             elements.startScrapeBtn.disabled = false;
             elements.importDocsBtn.disabled = false;
             await loadScraperStats();
+            await loadCategories();  // Reload categories in case new ones were created
             if (data.status_text && data.status_text.includes('Cancelled')) {
                 showToast('Cancelled', 'error');
             } else {
@@ -998,10 +1236,14 @@ async function loadCategories() {
         console.log('Categories object:', categories);
         console.log('Categories entries:', Object.entries(categories));
 
-        // Populate category select dropdown
+        // Populate category select dropdown with stats
         const categoryOptions = Object.entries(categories).map(([key, cat]) => {
             console.log('Processing category:', key, cat);
-            return `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`;
+            const pages = cat.pages_scraped || 0;
+            const chunks = cat.chunks_indexed || 0;
+            const stats = pages > 0 || chunks > 0 ? ` (${pages}p, ${chunks}c)` : '';
+            const fullTitle = `${cat.name} - ${pages} pages, ${chunks} chunks`;
+            return `<option value="${escapeHtml(key)}" title="${escapeHtml(fullTitle)}">${escapeHtml(cat.name)}${stats}</option>`;
         }).join('');
 
         console.log('Category options HTML:', categoryOptions);
