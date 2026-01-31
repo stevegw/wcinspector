@@ -555,6 +555,15 @@ async def get_scraper_status():
     }
 
 
+@app.post("/api/scraper/cancel")
+async def cancel_scraper():
+    """Cancel the current scrape operation"""
+    from scraper import cancel_scrape
+
+    result = cancel_scrape()
+    return result
+
+
 class ScrapeRequest(BaseModel):
     category: str = "windchill"
     max_pages: int = 500

@@ -24,7 +24,8 @@ scraper_state = {
     "pages_scraped": 0,
     "total_pages_estimate": 0,
     "errors": [],
-    "category": None
+    "category": None,
+    "cancel_requested": False
 }
 
 
@@ -76,13 +77,25 @@ def reset_scraper_state():
         "current_url": None,
         "pages_scraped": 0,
         "total_pages_estimate": 0,
-        "errors": []
+        "errors": [],
+        "category": None,
+        "cancel_requested": False
     }
 
 
 def get_scraper_state():
     """Get current scraper state"""
     return scraper_state.copy()
+
+
+def cancel_scrape():
+    """Request cancellation of current scrape"""
+    global scraper_state
+    if scraper_state["in_progress"]:
+        scraper_state["cancel_requested"] = True
+        scraper_state["status_text"] = "Cancelling..."
+        return {"status": "success", "message": "Cancel requested"}
+    return {"status": "warning", "message": "No scrape in progress"}
 
 
 def content_hash(content: str) -> str:
@@ -405,6 +418,13 @@ async def run_document_import(db_session, folder_path: str = None, category: str
     docs_imported = 0
 
     for i, file_path in enumerate(docx_files):
+        # Check for cancellation
+        if scraper_state.get("cancel_requested"):
+            scraper_state["status_text"] = "Cancelled by user"
+            scraper_state["in_progress"] = False
+            scraper_state["cancel_requested"] = False
+            return
+
         scraper_state["current_url"] = file_path
         scraper_state["status_text"] = f"Importing: {Path(file_path).name}..."
 
@@ -723,6 +743,13 @@ async def run_community_scrape(db_session, max_threads: int = 100, category: str
         # Phase 2: Scrape individual threads
         threads_scraped = 0
         for thread_url in thread_queue[:max_threads]:
+            # Check for cancellation
+            if scraper_state.get("cancel_requested"):
+                scraper_state["status_text"] = "Cancelled by user"
+                scraper_state["in_progress"] = False
+                scraper_state["cancel_requested"] = False
+                return
+
             if thread_url in scraped_threads:
                 continue
 
@@ -869,6 +896,13 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
 
     try:
         while queue and len(visited) < max_pages:
+            # Check for cancellation
+            if scraper_state.get("cancel_requested"):
+                scraper_state["status_text"] = "Cancelled by user"
+                scraper_state["in_progress"] = False
+                scraper_state["cancel_requested"] = False
+                return
+
             url = queue.pop(0)
 
             if url in visited:

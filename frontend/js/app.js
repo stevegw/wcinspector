@@ -84,6 +84,7 @@ const elements = {
     scraperProgress: document.getElementById('scraper-progress'),
     progressFill: document.getElementById('progress-fill'),
     progressText: document.getElementById('progress-text'),
+    cancelScrapeBtn: document.getElementById('cancel-scrape-btn'),
     scrapeCategorySelect: document.getElementById('scrape-category-select'),
     scrapeMaxPages: document.getElementById('scrape-max-pages'),
     startScrapeBtn: document.getElementById('start-scrape-btn'),
@@ -219,6 +220,7 @@ function setupEventListeners() {
     // Scraper
     elements.scraperBtn.addEventListener('click', () => showModal(elements.scraperModal));
     elements.startScrapeBtn.addEventListener('click', startScrape);
+    elements.cancelScrapeBtn.addEventListener('click', cancelScrape);
     elements.clearCategoryBtn.addEventListener('click', clearSelectedCategory);
     elements.importDocsBtn.addEventListener('click', showImportModal);
     elements.exportBtn.addEventListener('click', exportHistory);
@@ -742,23 +744,31 @@ async function loadScraperStats() {
     }
 }
 
-async function startScrape() {
-    try {
-        const category = elements.scrapeCategorySelect.value;
-        const maxPages = parseInt(elements.scrapeMaxPages.value) || 1500;
-        await apiRequest('/scraper/start', {
-            method: 'POST',
-            body: JSON.stringify({ category, max_pages: maxPages })
-        });
-        elements.scraperProgress.classList.remove('hidden');
-        elements.startScrapeBtn.disabled = true;
-        elements.importDocsBtn.disabled = true;
-        const catName = categories[category]?.name || category;
-        showToast(`Starting scrape for ${catName} (${maxPages} pages)...`, 'success');
-        pollScrapeStatus();
-    } catch (error) {
-        showToast('Failed to start scrape', 'error');
-    }
+function startScrape() {
+    const category = elements.scrapeCategorySelect.value;
+    const maxPages = parseInt(elements.scrapeMaxPages.value) || 1500;
+    const catName = categories[category]?.name || category;
+
+    showConfirm(
+        'Start Scrape',
+        `Start scraping "${catName}" (up to ${maxPages} pages)? This may take a while.`,
+        async () => {
+            try {
+                await apiRequest('/scraper/start', {
+                    method: 'POST',
+                    body: JSON.stringify({ category, max_pages: maxPages })
+                });
+                elements.scraperProgress.classList.remove('hidden');
+                elements.startScrapeBtn.disabled = true;
+                elements.importDocsBtn.disabled = true;
+                elements.cancelScrapeBtn.classList.remove('hidden');
+                showToast(`Starting scrape for ${catName}...`, 'success');
+                pollScrapeStatus();
+            } catch (error) {
+                showToast('Failed to start scrape', 'error');
+            }
+        }
+    );
 }
 
 function clearSelectedCategory() {
@@ -838,19 +848,35 @@ async function pollScrapeStatus() {
         if (data.in_progress) {
             elements.progressFill.style.width = `${data.progress || 0}%`;
             elements.progressText.textContent = data.status_text || 'Processing...';
+            elements.cancelScrapeBtn.classList.remove('hidden');
             setTimeout(pollScrapeStatus, 2000);
         } else {
             elements.scraperProgress.classList.add('hidden');
+            elements.cancelScrapeBtn.classList.add('hidden');
             elements.startScrapeBtn.disabled = false;
             elements.importDocsBtn.disabled = false;
             await loadScraperStats();
-            showToast('Complete!', 'success');
+            if (data.status_text && data.status_text.includes('Cancelled')) {
+                showToast('Cancelled', 'error');
+            } else {
+                showToast('Complete!', 'success');
+            }
         }
     } catch (error) {
         elements.scraperProgress.classList.add('hidden');
+        elements.cancelScrapeBtn.classList.add('hidden');
         elements.startScrapeBtn.disabled = false;
         elements.importDocsBtn.disabled = false;
         showToast('Status check failed', 'error');
+    }
+}
+
+async function cancelScrape() {
+    try {
+        await apiRequest('/scraper/cancel', { method: 'POST' });
+        showToast('Cancelling...', 'success');
+    } catch (error) {
+        showToast('Failed to cancel', 'error');
     }
 }
 

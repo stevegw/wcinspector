@@ -956,6 +956,18 @@ a:hover { color: var(--accent-hover); }
     transition: width var(--transition-normal);
 }
 
+.progress-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+}
+
+.progress-status p {
+    margin: 0;
+    flex: 1;
+}
+
 .scraper-actions {
     display: flex;
     flex-direction: column;
