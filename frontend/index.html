@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=19">
+    <link rel="stylesheet" href="/static/css/styles.css?v=25">
 </head>
 <body>
     <!-- Header -->
@@ -28,13 +28,25 @@
     <main class="main-content">
         <!-- History Sidebar -->
         <aside class="history-sidebar" id="history-sidebar">
-            <div class="sidebar-header">
-                <h2>History</h2>
-                <button id="clear-history-btn" class="btn btn-small btn-danger">Clear</button>
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    <h2>History</h2>
+                    <button id="clear-history-btn" class="btn btn-small btn-danger">Clear</button>
+                </div>
+                <div class="history-list" id="history-list">
+                    <!-- History items will be populated by JavaScript -->
+                    <p class="empty-state">No questions yet</p>
+                </div>
             </div>
-            <div class="history-list" id="history-list">
-                <!-- History items will be populated by JavaScript -->
-                <p class="empty-state">No questions yet</p>
+            <div class="sidebar-section">
+                <div class="sidebar-header">
+                    <h2>Courses</h2>
+                    <button id="new-course-btn" class="btn btn-small btn-primary">+ New</button>
+                </div>
+                <div class="course-list" id="course-list">
+                    <!-- Course items will be populated by JavaScript -->
+                    <p class="empty-state">No courses yet</p>
+                </div>
             </div>
         </aside>
 
@@ -338,11 +350,149 @@
         <button class="lightbox-nav lightbox-next" id="lightbox-next" aria-label="Next">&gt;</button>
     </div>
 
+    <!-- AI Course Generator Modal -->
+    <div class="modal hidden" id="course-modal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2 id="course-modal-title">Create AI-Generated Course</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="ai-course-form" id="ai-course-form">
+                    <p class="modal-description">Describe what you want to learn and AI will create a structured course from the documentation.</p>
+                    <div class="setting-group">
+                        <label for="course-topic">What do you want to learn? *</label>
+                        <input type="text" id="course-topic" placeholder="e.g., BOM management in Windchill, Change management basics, How to configure workflows" required>
+                    </div>
+                    <div class="setting-group">
+                        <label for="course-category">Documentation Source</label>
+                        <select id="course-category">
+                            <option value="">All Sources</option>
+                            <!-- Categories populated dynamically by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label for="course-num-lessons">Number of Lessons</label>
+                        <select id="course-num-lessons">
+                            <option value="3">3 lessons (Quick overview)</option>
+                            <option value="5" selected>5 lessons (Standard)</option>
+                            <option value="7">7 lessons (Comprehensive)</option>
+                            <option value="10">10 lessons (Deep dive)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ai-generating hidden" id="ai-generating">
+                    <div class="generating-spinner"></div>
+                    <p>Generating your course...</p>
+                    <p class="generating-subtext">AI is analyzing documentation and creating structured lessons</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancel-course-btn">Cancel</button>
+                <button class="btn btn-primary" id="generate-course-btn">Generate Course</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Lessons Modal -->
+    <div class="modal hidden" id="add-lessons-modal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2>Add Lessons to: <span id="add-lessons-course-title"></span></h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="search-section">
+                    <div class="search-row">
+                        <input type="text" id="page-search" placeholder="Search documentation pages...">
+                        <select id="page-search-category">
+                            <option value="">All Categories</option>
+                        </select>
+                        <button class="btn btn-primary" id="search-pages-btn">Search</button>
+                    </div>
+                </div>
+                <div class="search-results-section">
+                    <div class="search-results" id="page-search-results">
+                        <p class="empty-state">Search for pages to add as lessons</p>
+                    </div>
+                </div>
+                <div class="selected-lessons-section">
+                    <h4>Selected Lessons <span id="course-items-count">(0)</span></h4>
+                    <div class="course-items" id="course-items">
+                        <p class="empty-state">No lessons added yet</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="done-adding-lessons-btn">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Course Viewer -->
+    <div class="course-viewer hidden" id="course-viewer">
+        <div class="course-viewer-header">
+            <div class="course-header-left">
+                <button id="back-to-main-btn" class="btn btn-small btn-secondary">< Back</button>
+            </div>
+            <div class="course-header-center">
+                <h2 id="course-viewer-title">Course Title</h2>
+                <p id="course-viewer-description" class="course-viewer-desc"></p>
+            </div>
+            <div class="course-header-right">
+                <button id="add-lessons-btn" class="btn btn-small btn-primary">+ Add Lessons</button>
+                <button id="delete-course-btn" class="btn btn-small btn-danger">Delete</button>
+            </div>
+        </div>
+
+        <div class="course-progress-section">
+            <div class="progress-bar course-progress-bar">
+                <div class="progress-fill" id="course-progress-fill"></div>
+            </div>
+            <div class="progress-info">
+                <span id="course-progress-text">0 of 0 complete</span>
+                <button id="resume-course-btn" class="btn btn-small btn-primary">Resume</button>
+            </div>
+        </div>
+
+        <div class="course-content-area">
+            <div class="lesson-list" id="lesson-list">
+                <!-- Lessons will be populated by JavaScript -->
+            </div>
+
+            <div class="lesson-detail hidden" id="lesson-content">
+                <div class="lesson-detail-header">
+                    <div class="lesson-detail-title">
+                        <span class="lesson-number" id="lesson-number">1</span>
+                        <h3 id="lesson-title">Lesson Title</h3>
+                    </div>
+                    <a id="lesson-source-link" href="#" target="_blank" class="btn btn-small btn-secondary">View Original</a>
+                </div>
+
+                <div class="lesson-detail-content" id="lesson-page-content">
+                    <!-- Formatted page content -->
+                </div>
+
+                <div class="lesson-notes-section">
+                    <h4>My Notes</h4>
+                    <textarea id="learner-notes" placeholder="Take notes as you learn..." rows="3"></textarea>
+                    <span id="notes-save-status" class="notes-status"></span>
+                </div>
+
+                <div class="lesson-actions">
+                    <button id="prev-lesson-btn" class="btn btn-secondary">< Previous</button>
+                    <button id="mark-complete-btn" class="btn btn-primary btn-large">Mark Complete</button>
+                    <button id="next-lesson-btn" class="btn btn-secondary">Next ></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container">
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=29"></script>
+    <script src="/static/js/app.js?v=42"></script>
 </body>
 </html>

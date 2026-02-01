@@ -22,6 +22,14 @@ let settings = {
     groq_model: 'llama-3.1-8b-instant'
 };
 
+// Course state
+let courses = [];
+let currentCourse = null;
+let currentLessonId = null;
+let courseItems = [];  // Items being edited in course builder
+let editingCourseId = null;  // Course ID being edited (null for new)
+let notesTimeout = null;  // Debounce timer for auto-save notes
+
 // DOM Elements
 const elements = {
     // Question Form
@@ -129,7 +137,54 @@ const elements = {
     lightboxCaption: document.getElementById('lightbox-caption'),
     lightboxClose: document.getElementById('lightbox-close'),
     lightboxPrev: document.getElementById('lightbox-prev'),
-    lightboxNext: document.getElementById('lightbox-next')
+    lightboxNext: document.getElementById('lightbox-next'),
+
+    // Courses
+    courseList: document.getElementById('course-list'),
+    newCourseBtn: document.getElementById('new-course-btn'),
+    courseModal: document.getElementById('course-modal'),
+    courseModalTitle: document.getElementById('course-modal-title'),
+    courseTopic: document.getElementById('course-topic'),
+    courseCategory: document.getElementById('course-category'),
+    courseNumLessons: document.getElementById('course-num-lessons'),
+    cancelCourseBtn: document.getElementById('cancel-course-btn'),
+    generateCourseBtn: document.getElementById('generate-course-btn'),
+    aiCourseForm: document.getElementById('ai-course-form'),
+    aiGenerating: document.getElementById('ai-generating'),
+
+    // Add Lessons Modal
+    addLessonsModal: document.getElementById('add-lessons-modal'),
+    addLessonsCourseTitle: document.getElementById('add-lessons-course-title'),
+    pageSearch: document.getElementById('page-search'),
+    pageSearchCategory: document.getElementById('page-search-category'),
+    searchPagesBtn: document.getElementById('search-pages-btn'),
+    pageSearchResults: document.getElementById('page-search-results'),
+    courseItemsEl: document.getElementById('course-items'),
+    courseItemsCount: document.getElementById('course-items-count'),
+    doneAddingLessonsBtn: document.getElementById('done-adding-lessons-btn'),
+
+    // Course Viewer
+    courseViewer: document.getElementById('course-viewer'),
+    backToMainBtn: document.getElementById('back-to-main-btn'),
+    courseViewerTitle: document.getElementById('course-viewer-title'),
+    courseViewerDescription: document.getElementById('course-viewer-description'),
+    addLessonsBtn: document.getElementById('add-lessons-btn'),
+    deleteCourseBtn: document.getElementById('delete-course-btn'),
+    courseProgressText: document.getElementById('course-progress-text'),
+    courseProgressFill: document.getElementById('course-progress-fill'),
+    resumeCourseBtn: document.getElementById('resume-course-btn'),
+    lessonList: document.getElementById('lesson-list'),
+    lessonContent: document.getElementById('lesson-content'),
+    lessonNumber: document.getElementById('lesson-number'),
+    lessonTitle: document.getElementById('lesson-title'),
+    lessonSourceLink: document.getElementById('lesson-source-link'),
+    lessonPageContent: document.getElementById('lesson-page-content'),
+    learnerNotes: document.getElementById('learner-notes'),
+    notesSaveStatus: document.getElementById('notes-save-status'),
+    prevLessonBtn: document.getElementById('prev-lesson-btn'),
+    markCompleteBtn: document.getElementById('mark-complete-btn'),
+    nextLessonBtn: document.getElementById('next-lesson-btn'),
+    mainPanel: document.querySelector('.main-panel')
 };
 
 // Current sources for modal
@@ -163,6 +218,9 @@ async function init() {
 
     // Load history
     await loadHistory();
+
+    // Load courses
+    await loadCourses();
 
     // Load scraper stats
     await loadScraperStats();
@@ -339,6 +397,73 @@ function setupEventListeners() {
 
     // Topic filter change - re-run query with new filter
     elements.topicSelect.addEventListener('change', handleTopicFilterChange);
+
+    // Course event listeners
+    if (elements.newCourseBtn) {
+        elements.newCourseBtn.addEventListener('click', () => showCourseModal());
+    }
+    if (elements.cancelCourseBtn) {
+        elements.cancelCourseBtn.addEventListener('click', () => {
+            elements.courseModal.classList.add('hidden');
+        });
+    }
+    if (elements.generateCourseBtn) {
+        elements.generateCourseBtn.addEventListener('click', generateAICourse);
+    }
+
+    // Add Lessons Modal
+    if (elements.searchPagesBtn) {
+        elements.searchPagesBtn.addEventListener('click', searchPages);
+    }
+    if (elements.pageSearch) {
+        elements.pageSearch.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') searchPages();
+        });
+    }
+    if (elements.doneAddingLessonsBtn) {
+        elements.doneAddingLessonsBtn.addEventListener('click', closeAddLessonsModal);
+    }
+
+    // Course Viewer event listeners
+    if (elements.backToMainBtn) {
+        elements.backToMainBtn.addEventListener('click', closeCourseViewer);
+    }
+    if (elements.addLessonsBtn) {
+        elements.addLessonsBtn.addEventListener('click', () => {
+            if (currentCourse) {
+                showAddLessonsModal();
+            }
+        });
+    }
+    if (elements.deleteCourseBtn) {
+        elements.deleteCourseBtn.addEventListener('click', () => {
+            if (currentCourse) {
+                showConfirm(
+                    'Delete Course',
+                    `Are you sure you want to delete "${currentCourse.title}"? This cannot be undone.`,
+                    async () => {
+                        await deleteCourse(currentCourse.id);
+                        closeCourseViewer();
+                    }
+                );
+            }
+        });
+    }
+    if (elements.resumeCourseBtn) {
+        elements.resumeCourseBtn.addEventListener('click', resumeCourse);
+    }
+    if (elements.prevLessonBtn) {
+        elements.prevLessonBtn.addEventListener('click', () => navigateLesson(-1));
+    }
+    if (elements.nextLessonBtn) {
+        elements.nextLessonBtn.addEventListener('click', () => navigateLesson(1));
+    }
+    if (elements.markCompleteBtn) {
+        elements.markCompleteBtn.addEventListener('click', toggleLessonComplete);
+    }
+    if (elements.learnerNotes) {
+        elements.learnerNotes.addEventListener('input', handleNotesChange);
+    }
 }
 
 // API Functions
@@ -354,7 +479,18 @@ async function apiRequest(endpoint, options = {}) {
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'An error occurred' }));
-        throw new Error(error.detail || 'An error occurred');
+        // Handle FastAPI validation errors (detail can be an array)
+        let message = 'An error occurred';
+        if (error.detail) {
+            if (Array.isArray(error.detail)) {
+                message = error.detail.map(e => e.msg || e).join(', ');
+            } else {
+                message = error.detail;
+            }
+        } else if (error.error) {
+            message = error.error;
+        }
+        throw new Error(message);
     }
 
     return response.json();
@@ -726,11 +862,79 @@ function showSourcesModal() {
     if (currentSources.length === 0) {
         elements.sourcesList.innerHTML = '<li>No source links available</li>';
     } else {
-        elements.sourcesList.innerHTML = currentSources.map(url =>
-            `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></li>`
-        ).join('');
+        elements.sourcesList.innerHTML = currentSources.map(url => {
+            if (url.startsWith('file://')) {
+                // Local file - show view button instead of link
+                const filename = url.split('/').pop();
+                return `<li class="local-source">
+                    <span class="source-label">📄 ${escapeHtml(filename)}</span>
+                    <button class="btn btn-small view-local-btn" data-url="${escapeHtml(url)}">View Content</button>
+                </li>`;
+            } else {
+                // Remote URL - show as link
+                return `<li><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></li>`;
+            }
+        }).join('');
+
+        // Add click handlers for local file view buttons
+        elements.sourcesList.querySelectorAll('.view-local-btn').forEach(btn => {
+            btn.addEventListener('click', () => viewLocalDocument(btn.dataset.url));
+        });
     }
     showModal(elements.sourcesModal);
+}
+
+// View local document content
+async function viewLocalDocument(url) {
+    try {
+        const data = await apiRequest(`/pages/by-url?url=${encodeURIComponent(url)}`);
+
+        // Create a content viewer modal or use existing one
+        const content = data.content || 'No content available';
+        const title = data.title || 'Document';
+
+        // Use a simple alert for now, or create a proper modal
+        showDocumentViewer(title, content);
+    } catch (error) {
+        console.error('Failed to load document:', error);
+        showToast('Failed to load document content', 'error');
+    }
+}
+
+// Document viewer modal
+function showDocumentViewer(title, content) {
+    // Check if viewer modal exists, if not create it
+    let viewerModal = document.getElementById('document-viewer-modal');
+    if (!viewerModal) {
+        viewerModal = document.createElement('div');
+        viewerModal.id = 'document-viewer-modal';
+        viewerModal.className = 'modal hidden';
+        viewerModal.innerHTML = `
+            <div class="modal-content modal-wide">
+                <div class="modal-header">
+                    <h2 id="viewer-title">Document</h2>
+                    <button class="modal-close" aria-label="Close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="viewer-content" class="document-viewer-content"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(viewerModal);
+
+        // Add close handler
+        viewerModal.querySelector('.modal-close').addEventListener('click', () => {
+            viewerModal.classList.add('hidden');
+        });
+        viewerModal.addEventListener('click', (e) => {
+            if (e.target === viewerModal) viewerModal.classList.add('hidden');
+        });
+    }
+
+    // Populate and show
+    document.getElementById('viewer-title').textContent = title;
+    document.getElementById('viewer-content').innerHTML = `<pre>${escapeHtml(content)}</pre>`;
+    viewerModal.classList.remove('hidden');
 }
 
 // Scraper Functions
@@ -1055,6 +1259,14 @@ async function pollImportStatus() {
             elements.progressFill.classList.remove('indeterminate');
             elements.progressFill.style.width = '100%';
             elements.progressText.textContent = data.status_text || 'Complete!';
+
+            // Log debug info if available
+            if (data.debug_log && data.debug_log.length > 0) {
+                console.log('Import debug log:', data.debug_log);
+            }
+            if (data.errors && data.errors.length > 0) {
+                console.log('Import errors:', data.errors);
+            }
 
             // Show completion for a moment before hiding
             setTimeout(async () => {
@@ -1447,3 +1659,971 @@ function updateLightboxImage() {
 
 // Make showImageLightbox globally accessible for onclick
 window.showImageLightbox = showImageLightbox;
+
+// ============== Course Functions ==============
+
+// Load all courses
+async function loadCourses() {
+    try {
+        const data = await apiRequest('/courses');
+        courses = data.courses || [];
+        renderCourseList();
+    } catch (error) {
+        console.error('Failed to load courses:', error);
+    }
+}
+
+// Render course list in sidebar
+function renderCourseList() {
+    if (!elements.courseList) return;
+
+    if (courses.length === 0) {
+        elements.courseList.innerHTML = '<p class="empty-state">No courses yet</p>';
+        return;
+    }
+
+    elements.courseList.innerHTML = courses.map(course => `
+        <div class="course-item ${currentCourse && currentCourse.id === course.id ? 'active' : ''}"
+             data-id="${course.id}"
+             title="${escapeHtml(course.title)} - ${course.completed_items}/${course.total_items} complete">
+            <div class="course-item-title">${escapeHtml(course.title)}</div>
+            <div class="progress-mini">
+                <div class="progress-mini-fill" style="width: ${course.progress}%"></div>
+            </div>
+        </div>
+    `).join('');
+
+    // Add click handlers
+    elements.courseList.querySelectorAll('.course-item').forEach(item => {
+        item.addEventListener('click', () => openCourse(parseInt(item.dataset.id)));
+    });
+}
+
+// Show AI course generation modal
+function showCourseModal() {
+    editingCourseId = null;
+
+    // Reset form
+    if (elements.courseTopic) {
+        elements.courseTopic.value = '';
+    }
+    if (elements.courseNumLessons) {
+        elements.courseNumLessons.value = '5';
+    }
+
+    // Populate category dropdown with all available categories
+    if (elements.courseCategory) {
+        const categoryOptions = Object.entries(categories).map(([key, cat]) =>
+            `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)} (${cat.pages_scraped || 0} pages)</option>`
+        ).join('');
+        elements.courseCategory.innerHTML = '<option value="">All Sources</option>' + categoryOptions;
+        elements.courseCategory.value = '';
+    }
+
+    // Show form, hide generating state
+    if (elements.aiCourseForm) {
+        elements.aiCourseForm.classList.remove('hidden');
+    }
+    if (elements.aiGenerating) {
+        elements.aiGenerating.classList.add('hidden');
+    }
+    if (elements.generateCourseBtn) {
+        elements.generateCourseBtn.disabled = false;
+    }
+
+    showModal(elements.courseModal);
+}
+
+// Generate AI course
+async function generateAICourse() {
+    const topic = elements.courseTopic ? elements.courseTopic.value.trim() : '';
+    const category = elements.courseCategory ? elements.courseCategory.value : '';
+    const numLessons = elements.courseNumLessons ? parseInt(elements.courseNumLessons.value) : 5;
+
+    if (!topic) {
+        showToast('Please describe what you want to learn', 'error');
+        return;
+    }
+
+    // Show generating state
+    if (elements.aiCourseForm) {
+        elements.aiCourseForm.classList.add('hidden');
+    }
+    if (elements.aiGenerating) {
+        elements.aiGenerating.classList.remove('hidden');
+    }
+    if (elements.generateCourseBtn) {
+        elements.generateCourseBtn.disabled = true;
+    }
+
+    try {
+        const response = await apiRequest('/courses/generate', {
+            method: 'POST',
+            body: JSON.stringify({
+                topic: topic,
+                category: category || null,
+                num_lessons: numLessons
+            })
+        });
+
+        if (response.error) {
+            throw new Error(response.error);
+        }
+
+        if (!response.course_id) {
+            console.error('No course_id in response:', response);
+            throw new Error('Course was created but ID was not returned');
+        }
+
+        elements.courseModal.classList.add('hidden');
+        await loadCourses();
+
+        // Open the new course
+        await openCourse(response.course_id);
+
+        showToast(`Course created with ${response.num_lessons} lessons!`, 'success');
+    } catch (error) {
+        console.error('Generation failed:', error);
+        showToast(error.message || 'Failed to generate course', 'error');
+
+        // Reset form state
+        if (elements.aiCourseForm) {
+            elements.aiCourseForm.classList.remove('hidden');
+        }
+        if (elements.aiGenerating) {
+            elements.aiGenerating.classList.add('hidden');
+        }
+        if (elements.generateCourseBtn) {
+            elements.generateCourseBtn.disabled = false;
+        }
+    }
+}
+
+// Show Add Lessons modal
+function showAddLessonsModal() {
+    if (!currentCourse) return;
+
+    // Reset state
+    courseItems = currentCourse.items ? currentCourse.items.map(item => ({
+        id: item.id,
+        page_id: item.page_id,
+        title: item.page_title
+    })) : [];
+
+    // Update title
+    if (elements.addLessonsCourseTitle) {
+        elements.addLessonsCourseTitle.textContent = currentCourse.title;
+    }
+
+    // Populate category dropdown
+    if (elements.pageSearchCategory) {
+        const categoryOptions = Object.entries(categories).map(([key, cat]) =>
+            `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`
+        ).join('');
+        elements.pageSearchCategory.innerHTML = '<option value="">All Categories</option>' + categoryOptions;
+    }
+
+    // Clear search and auto-load all pages
+    if (elements.pageSearch) {
+        elements.pageSearch.value = '';
+    }
+
+    renderCourseItems();
+    showModal(elements.addLessonsModal);
+
+    // Auto-search to show all available pages
+    searchPages();
+}
+
+// Close Add Lessons modal and save changes
+async function closeAddLessonsModal() {
+    if (!currentCourse) {
+        elements.addLessonsModal.classList.add('hidden');
+        return;
+    }
+
+    try {
+        // Get current items from server
+        const serverCourse = await apiRequest(`/courses/${currentCourse.id}`);
+        const serverItemIds = serverCourse.items.map(i => i.id);
+        const localItemIds = courseItems.filter(i => i.id).map(i => i.id);
+
+        // Remove items no longer in list
+        for (const itemId of serverItemIds) {
+            if (!localItemIds.includes(itemId)) {
+                await apiRequest(`/courses/${currentCourse.id}/items/${itemId}`, { method: 'DELETE' });
+            }
+        }
+
+        // Add new items
+        for (const item of courseItems) {
+            if (!item.id) {
+                await apiRequest(`/courses/${currentCourse.id}/items`, {
+                    method: 'POST',
+                    body: JSON.stringify({ page_id: item.page_id })
+                });
+            }
+        }
+
+        elements.addLessonsModal.classList.add('hidden');
+
+        // Refresh course
+        await openCourse(currentCourse.id);
+        await loadCourses();
+    } catch (error) {
+        console.error('Failed to save lessons:', error);
+        showToast('Failed to save lessons', 'error');
+    }
+}
+
+// Render course items in Add Lessons modal
+function renderCourseItems() {
+    if (!elements.courseItemsEl) return;
+
+    if (elements.courseItemsCount) {
+        elements.courseItemsCount.textContent = `(${courseItems.length})`;
+    }
+
+    if (courseItems.length === 0) {
+        elements.courseItemsEl.innerHTML = '<p class="empty-state">No lessons added yet</p>';
+        return;
+    }
+
+    elements.courseItemsEl.innerHTML = courseItems.map((item, index) => `
+        <div class="course-item-row" data-index="${index}">
+            <span class="drag-handle">⋮⋮</span>
+            <span class="item-position">${index + 1}</span>
+            <span class="item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
+            <button class="remove-item-btn" data-index="${index}" title="Remove">×</button>
+        </div>
+    `).join('');
+
+    // Add remove handlers
+    elements.courseItemsEl.querySelectorAll('.remove-item-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(btn.dataset.index);
+            courseItems.splice(index, 1);
+            renderCourseItems();
+        });
+    });
+
+    // Make items draggable
+    makeDraggable(elements.courseItemsEl);
+}
+
+// Simple drag-to-reorder
+function makeDraggable(container) {
+    let draggedItem = null;
+
+    container.querySelectorAll('.course-item-row').forEach(item => {
+        item.draggable = true;
+
+        item.addEventListener('dragstart', () => {
+            draggedItem = item;
+            item.style.opacity = '0.5';
+        });
+
+        item.addEventListener('dragend', () => {
+            item.style.opacity = '1';
+            draggedItem = null;
+        });
+
+        item.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+
+        item.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (draggedItem && draggedItem !== item) {
+                const fromIndex = parseInt(draggedItem.dataset.index);
+                const toIndex = parseInt(item.dataset.index);
+                const moved = courseItems.splice(fromIndex, 1)[0];
+                courseItems.splice(toIndex, 0, moved);
+                renderCourseItems();
+            }
+        });
+    });
+}
+
+// Search pages for adding to course
+async function searchPages() {
+    const query = elements.pageSearch ? elements.pageSearch.value.trim() : '';
+    const category = elements.pageSearchCategory ? elements.pageSearchCategory.value : '';
+
+    try {
+        let url = `/pages/search?limit=200`;
+        if (query) url += `&q=${encodeURIComponent(query)}`;
+        if (category) url += `&category=${encodeURIComponent(category)}`;
+
+        const data = await apiRequest(url);
+        const pages = data.pages || [];
+
+        if (pages.length === 0) {
+            elements.pageSearchResults.innerHTML = '<p class="empty-state">No pages found</p>';
+            return;
+        }
+
+        // Filter out already-added pages
+        const addedIds = courseItems.map(i => i.page_id);
+        const availablePages = pages.filter(p => !addedIds.includes(p.id));
+
+        if (availablePages.length === 0) {
+            elements.pageSearchResults.innerHTML = '<p class="empty-state">All matching pages already added</p>';
+            return;
+        }
+
+        elements.pageSearchResults.innerHTML = availablePages.map(page => `
+            <div class="search-result-item" data-id="${page.id}" data-title="${escapeHtml(page.title || 'Untitled')}">
+                <span class="search-result-title">${escapeHtml(page.title || 'Untitled')}</span>
+                <span class="search-result-category">${escapeHtml(page.category || '')}</span>
+                <button class="add-page-btn">+ Add</button>
+            </div>
+        `).join('');
+
+        // Add click handlers
+        elements.pageSearchResults.querySelectorAll('.add-page-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = btn.closest('.search-result-item');
+                const pageId = parseInt(item.dataset.id);
+                const title = item.dataset.title;
+                addPageToCourse(pageId, title);
+            });
+        });
+    } catch (error) {
+        console.error('Search failed:', error);
+        if (elements.pageSearchResults) {
+            elements.pageSearchResults.innerHTML = '<p class="empty-state">Search failed</p>';
+        }
+    }
+}
+
+// Add page to course items
+function addPageToCourse(pageId, title) {
+    courseItems.push({
+        page_id: pageId,
+        title: title
+    });
+    renderCourseItems();
+    searchPages();  // Refresh search to hide added item
+    showToast(`Added: ${title}`, 'success');
+}
+
+// Delete course
+async function deleteCourse(courseId) {
+    try {
+        await apiRequest(`/courses/${courseId}`, { method: 'DELETE' });
+        await loadCourses();
+        showToast('Course deleted', 'success');
+    } catch (error) {
+        console.error('Delete failed:', error);
+        showToast('Failed to delete course', 'error');
+    }
+}
+
+// Open course in viewer
+async function openCourse(courseId) {
+    try {
+        const course = await apiRequest(`/courses/${courseId}`);
+        currentCourse = course;
+        currentLessonId = null;
+
+        // Update sidebar active state
+        renderCourseList();
+
+        // Show course viewer, hide main panel
+        if (elements.courseViewer) {
+            elements.courseViewer.classList.remove('hidden');
+        }
+        if (elements.mainPanel) {
+            elements.mainPanel.classList.add('hidden');
+        }
+
+        // Update header
+        if (elements.courseViewerTitle) {
+            elements.courseViewerTitle.textContent = course.title;
+        }
+        if (elements.courseViewerDescription) {
+            elements.courseViewerDescription.textContent = course.description || '';
+        }
+
+        // Update progress
+        updateCourseProgress(course);
+
+        // Render lesson list
+        renderLessonList(course);
+
+        // If there are lessons, open the first/resume one
+        if (course.items && course.items.length > 0) {
+            if (course.current_item_id) {
+                openLesson(course.current_item_id);
+            } else {
+                openLesson(course.items[0].id);
+            }
+        } else {
+            // Hide lesson content if no lessons
+            if (elements.lessonContent) {
+                elements.lessonContent.classList.add('hidden');
+            }
+        }
+    } catch (error) {
+        console.error('Failed to open course:', error);
+        showToast('Failed to open course', 'error');
+    }
+}
+
+// Close course viewer
+function closeCourseViewer() {
+    currentCourse = null;
+    currentLessonId = null;
+
+    if (elements.courseViewer) {
+        elements.courseViewer.classList.add('hidden');
+    }
+    if (elements.mainPanel) {
+        elements.mainPanel.classList.remove('hidden');
+    }
+
+    renderCourseList();
+}
+
+// Update course progress display
+function updateCourseProgress(course) {
+    if (elements.courseProgressText) {
+        elements.courseProgressText.textContent = `${course.completed_items} of ${course.total_items} lessons complete`;
+    }
+    if (elements.courseProgressFill) {
+        elements.courseProgressFill.style.width = `${course.progress}%`;
+    }
+}
+
+// Render lesson list
+function renderLessonList(course) {
+    if (!elements.lessonList) return;
+
+    if (!course.items || course.items.length === 0) {
+        elements.lessonList.innerHTML = `
+            <div class="empty-state" style="padding: 40px; text-align: center;">
+                <p>No lessons yet</p>
+                <button class="btn btn-primary" onclick="showAddLessonsModal()" style="margin-top: 16px;">+ Add Lessons</button>
+            </div>
+        `;
+        return;
+    }
+
+    elements.lessonList.innerHTML = course.items.map((item, index) => {
+        // Check for AI-generated title in instructor_notes
+        let lessonTitle = item.page_title;
+        if (item.instructor_notes) {
+            try {
+                const aiContent = JSON.parse(item.instructor_notes);
+                if (aiContent.ai_generated && aiContent.title) {
+                    lessonTitle = aiContent.title;
+                }
+            } catch (e) { /* not JSON, use page_title */ }
+        }
+
+        return `
+            <div class="lesson-item ${item.completed ? 'completed' : ''} ${currentLessonId === item.id ? 'active' : ''}"
+                 data-id="${item.id}">
+                <span class="lesson-position">${index + 1}</span>
+                <div class="lesson-checkbox" data-id="${item.id}">
+                    ${item.completed ? '<span class="check-icon">✓</span>' : ''}
+                </div>
+                <span class="lesson-title-text">${escapeHtml(lessonTitle)}</span>
+            </div>
+        `;
+    }).join('');
+
+    // Add click handlers for lessons
+    elements.lessonList.querySelectorAll('.lesson-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            if (!e.target.closest('.lesson-checkbox')) {
+                openLesson(parseInt(item.dataset.id));
+            }
+        });
+    });
+
+    // Add click handlers for checkboxes
+    elements.lessonList.querySelectorAll('.lesson-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = parseInt(checkbox.dataset.id);
+            toggleLessonCompleteById(itemId);
+        });
+    });
+}
+
+// Fix encoding issues in content (using Unicode escapes for reliability)
+function fixEncoding(text) {
+    if (!text) return '';
+
+    let result = text;
+
+    // PRIORITY 0: Triple-encoded patterns (UTF-8 → Latin1 → UTF-8 with Windows-1252)
+    // Pattern: Ã¢Â€Â + final byte (€ = U+20AC is 0x80 in Windows-1252)
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u00a2/g, '\u2022'); // Ã¢Â€Â¢ → • (bullet)
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u2122/g, "'");      // Ã¢Â€Â™ → ' (apostrophe) - ™ is U+2122 for 0x99
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u0099/g, "'");      // alternate apostrophe
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u201c/g, '"');      // left quote
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u009c/g, '"');      // alternate left quote
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u009d/g, '"');      // right quote
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u0094/g, '\u2014'); // em dash
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u201d/g, '\u2014'); // alternate em dash
+    result = result.replace(/\u00c3\u00a2\u00c2\u20ac\u00c2\u0093/g, '\u2013'); // en dash
+
+    // PRIORITY 1: Two-character patterns (middle byte stripped)
+    result = result.replace(/\u00e2\u00a2/g, '\u2022');  // â¢ → • (bullet)
+    result = result.replace(/\u00e2\u0099/g, "'");       // â™ → ' (apostrophe)
+    result = result.replace(/\u00e2\u009c/g, '"');       // âœ → " (left quote)
+    result = result.replace(/\u00e2\u009d/g, '"');       // â → " (right quote)
+    result = result.replace(/\u00e2\u0094/g, '\u2014');  // â" → — (em dash)
+    result = result.replace(/\u00e2\u0093/g, '\u2013');  // â" → – (en dash)
+    result = result.replace(/\u00e2\u00a6/g, '\u2026');  // â¦ → … (ellipsis)
+
+    // PRIORITY 2: Three-character patterns (full UTF-8 misread as Latin-1)
+    result = result.replace(/\u00e2\u0080\u00a2/g, '\u2022'); // â€¢ → •
+    result = result.replace(/\u00e2\u0080\u0099/g, "'");      // â€™ → '
+    result = result.replace(/\u00e2\u0080\u009c/g, '"');      // â€œ → "
+    result = result.replace(/\u00e2\u0080\u009d/g, '"');      // â€ → "
+    result = result.replace(/\u00e2\u0080\u0094/g, '\u2014'); // â€" → —
+    result = result.replace(/\u00e2\u0080\u0093/g, '\u2013'); // â€" → –
+    result = result.replace(/\u00e2\u0080\u00a6/g, '\u2026'); // â€¦ → …
+    result = result.replace(/\u00e2\u0084\u00a2/g, '\u2122'); // â„¢ → ™
+    result = result.replace(/\u00e2\u0080\u0098/g, "'");      // â€˜ → '
+
+    // PRIORITY 3: Clean up partially converted and remaining junk
+    result = result.replace(/\u2014\u00a6/g, '\u2026');  // —¦ → …
+    result = result.replace(/\u2014\u00a2/g, '\u2022'); // —¢ → •
+    result = result.replace(/\u00c3\u00a2/g, '\u2014'); // Ã¢ → — (partial triple-encode = em dash)
+    result = result.replace(/\u00a6/g, '');              // Lone broken bar ¦
+    result = result.replace(/\u00a2/g, '');              // Lone cent sign ¢
+    result = result.replace(/\u20ac/g, '');              // Lone euro sign €
+
+    // PRIORITY 4: Convert dot-like chars to bullets
+    result = result.replace(/(^|\n|\s)\u00b7\s/g, '$1\u2022 ');  // · middle dot → •
+    result = result.replace(/(^|\n|\s)\u2219\s/g, '$1\u2022 '); // ∙ bullet operator → •
+
+    // Handle â before contractions
+    result = result.replace(/\u00e2(?=s\b)/g, "'");
+    result = result.replace(/\u00e2(?=t\b)/g, "'");
+    result = result.replace(/\u00e2(?=ll\b)/g, "'");
+    result = result.replace(/\u00e2(?=re\b)/g, "'");
+    result = result.replace(/\u00e2(?=ve\b)/g, "'");
+
+    // Remaining â = em-dash
+    result = result.replace(/(\w)\u00e2(\w)/g, '$1\u2014$2');
+    result = result.replace(/\s\u00e2\s/g, ' \u2014 ');
+    result = result.replace(/\u00e2/g, '\u2014');
+
+    // Non-breaking space
+    result = result.replace(/\u00c2\u00a0/g, ' ');
+    result = result.replace(/\u00a0/g, ' ');
+
+    // Cleanup stray chars
+    result = result.replace(/\u00c2/g, '');
+    result = result.replace(/\u00c3/g, '');
+    result = result.replace(/\ufffd/g, '');
+
+    return result;
+}
+
+// Format content for better readability
+function formatLessonContent(content) {
+    if (!content) return '<p class="empty-state">No content available</p>';
+
+    // Fix encoding issues first
+    let text = fixEncoding(content);
+
+    // Additional cleanup: — at start of line likely meant to be bullet
+    text = text.replace(/^—\s*/gm, '• ');
+    text = text.replace(/\n—\s*/g, '\n• ');
+
+    // Escape HTML
+    text = escapeHtml(text);
+
+    // Split into lines and process
+    const lines = text.split('\n');
+    const result = [];
+    let inList = false;
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) {
+            if (inList) {
+                result.push('</ul>');
+                inList = false;
+            }
+            continue;
+        }
+
+        // Check if line starts with bullet character
+        const bulletMatch = line.match(/^[\u2022\u2023\u2043\u25e6\u00b7\-\*]\s*(.+)/);
+        if (bulletMatch) {
+            if (!inList) {
+                result.push('<ul class="content-list">');
+                inList = true;
+            }
+            result.push(`<li>${bulletMatch[1]}</li>`);
+        } else {
+            if (inList) {
+                result.push('</ul>');
+                inList = false;
+            }
+            result.push(`<p>${line}</p>`);
+        }
+    }
+
+    if (inList) {
+        result.push('</ul>');
+    }
+
+    return result.join('');
+}
+
+// Format AI-generated lesson content
+function formatAILessonContent(aiContent) {
+    if (!aiContent) return '<p class="empty-state">No content available</p>';
+
+    let html = '<div class="ai-lesson-content">';
+
+    // Summary
+    if (aiContent.summary) {
+        html += `<div class="ai-lesson-summary">${escapeHtml(aiContent.summary)}</div>`;
+    }
+
+    // Main content
+    if (aiContent.content) {
+        const content = escapeHtml(aiContent.content);
+        // Convert line breaks to paragraphs and handle bullet points
+        const lines = content.split('\n');
+        let inList = false;
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) {
+                if (inList) {
+                    html += '</ul>';
+                    inList = false;
+                }
+                continue;
+            }
+
+            // Check for bullet points
+            const bulletMatch = trimmed.match(/^[\u2022\u2023\-\*•]\s*(.+)/);
+            if (bulletMatch) {
+                if (!inList) {
+                    html += '<ul class="content-list">';
+                    inList = true;
+                }
+                html += `<li>${bulletMatch[1]}</li>`;
+            } else {
+                if (inList) {
+                    html += '</ul>';
+                    inList = false;
+                }
+                html += `<p>${trimmed}</p>`;
+            }
+        }
+        if (inList) html += '</ul>';
+    }
+
+    // Key points
+    if (aiContent.key_points && aiContent.key_points.length > 0) {
+        html += '<div class="ai-key-points">';
+        html += '<h4>Key Points</h4>';
+        html += '<ul>';
+        for (const point of aiContent.key_points) {
+            html += `<li>${escapeHtml(point)}</li>`;
+        }
+        html += '</ul>';
+        html += '</div>';
+    }
+
+    // Source links
+    if (aiContent.source_urls && aiContent.source_urls.length > 0) {
+        html += '<div class="ai-sources">';
+        html += '<strong>Sources:</strong> ';
+        const links = aiContent.source_urls
+            .filter(url => url)
+            .map(url => {
+                if (url.startsWith('file://')) {
+                    // Local file - show view button
+                    const filename = url.split('/').pop();
+                    return `<button class="btn btn-small view-local-btn" data-url="${escapeHtml(url)}" onclick="viewLocalDocument('${escapeHtml(url)}')">${escapeHtml(decodeURIComponent(filename))}</button>`;
+                } else {
+                    return `<a href="${escapeHtml(url)}" target="_blank">View Documentation</a>`;
+                }
+            });
+        html += links.join(' | ');
+        html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// Open lesson content
+function openLesson(itemId) {
+    if (!currentCourse) return;
+
+    const item = currentCourse.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    const index = currentCourse.items.findIndex(i => i.id === itemId);
+    currentLessonId = itemId;
+
+    // Update lesson list active state
+    if (elements.lessonList) {
+        elements.lessonList.querySelectorAll('.lesson-item').forEach(el => {
+            el.classList.toggle('active', parseInt(el.dataset.id) === itemId);
+        });
+    }
+
+    // Check if this is AI-generated content
+    let aiContent = null;
+    if (item.instructor_notes) {
+        try {
+            aiContent = JSON.parse(item.instructor_notes);
+            if (!aiContent.ai_generated) aiContent = null;
+        } catch (e) {
+            aiContent = null;
+        }
+    }
+
+    // Update lesson number
+    if (elements.lessonNumber) {
+        elements.lessonNumber.textContent = index + 1;
+    }
+
+    // Update lesson title
+    if (elements.lessonTitle) {
+        elements.lessonTitle.textContent = aiContent ? aiContent.title : item.page_title;
+    }
+
+    // Update source link
+    if (elements.lessonSourceLink) {
+        if (item.page_url) {
+            if (item.page_url.startsWith('file://')) {
+                // Local file - change to view content button
+                elements.lessonSourceLink.href = '#';
+                elements.lessonSourceLink.textContent = 'View Source Content';
+                elements.lessonSourceLink.onclick = (e) => {
+                    e.preventDefault();
+                    viewLocalDocument(item.page_url);
+                };
+                elements.lessonSourceLink.style.display = '';
+            } else {
+                // Remote URL - normal link
+                elements.lessonSourceLink.href = item.page_url;
+                elements.lessonSourceLink.textContent = 'View Original';
+                elements.lessonSourceLink.onclick = null;
+                elements.lessonSourceLink.style.display = '';
+            }
+        } else {
+            elements.lessonSourceLink.style.display = 'none';
+        }
+    }
+
+    // Update lesson content
+    if (elements.lessonPageContent) {
+        if (aiContent) {
+            // Display AI-generated content with nice formatting
+            elements.lessonPageContent.innerHTML = formatAILessonContent(aiContent);
+        } else {
+            // Display scraped page content
+            elements.lessonPageContent.innerHTML = formatLessonContent(item.page_content);
+        }
+    }
+
+    // Update notes
+    if (elements.learnerNotes) {
+        elements.learnerNotes.value = item.learner_notes || '';
+    }
+    if (elements.notesSaveStatus) {
+        elements.notesSaveStatus.textContent = '';
+        elements.notesSaveStatus.className = 'notes-status';
+    }
+
+    // Update mark complete button
+    updateMarkCompleteButton(item.completed);
+
+    // Update nav button states
+    updateLessonNavButtons();
+
+    // Show lesson content
+    if (elements.lessonContent) {
+        elements.lessonContent.classList.remove('hidden');
+    }
+
+    // Update resume position
+    setResumePosition(itemId);
+}
+
+// Navigate lessons
+function navigateLesson(direction) {
+    if (!currentCourse || !currentLessonId) return;
+
+    const currentIndex = currentCourse.items.findIndex(i => i.id === currentLessonId);
+    if (currentIndex === -1) return;
+
+    const newIndex = currentIndex + direction;
+    if (newIndex >= 0 && newIndex < currentCourse.items.length) {
+        openLesson(currentCourse.items[newIndex].id);
+    }
+}
+
+// Update lesson nav buttons
+function updateLessonNavButtons() {
+    if (!currentCourse || !currentLessonId) return;
+
+    const currentIndex = currentCourse.items.findIndex(i => i.id === currentLessonId);
+
+    if (elements.prevLessonBtn) {
+        elements.prevLessonBtn.disabled = currentIndex <= 0;
+    }
+    if (elements.nextLessonBtn) {
+        elements.nextLessonBtn.disabled = currentIndex >= currentCourse.items.length - 1;
+    }
+}
+
+// Update mark complete button
+function updateMarkCompleteButton(completed) {
+    if (elements.markCompleteBtn) {
+        elements.markCompleteBtn.textContent = completed ? 'Mark Incomplete' : 'Mark Complete';
+        elements.markCompleteBtn.classList.toggle('btn-secondary', completed);
+        elements.markCompleteBtn.classList.toggle('btn-primary', !completed);
+    }
+}
+
+// Toggle lesson complete
+async function toggleLessonComplete() {
+    if (!currentCourse || !currentLessonId) return;
+    await toggleLessonCompleteById(currentLessonId);
+}
+
+// Toggle lesson complete by ID
+async function toggleLessonCompleteById(itemId) {
+    if (!currentCourse) return;
+
+    const item = currentCourse.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    try {
+        const endpoint = item.completed ? 'uncomplete' : 'complete';
+        const data = await apiRequest(`/courses/${currentCourse.id}/items/${itemId}/${endpoint}`, {
+            method: 'POST'
+        });
+
+        // Update local state
+        item.completed = data.completed;
+        item.completed_at = data.completed_at;
+        currentCourse.completed_items = data.completed_items;
+        currentCourse.total_items = data.total_items;
+        currentCourse.progress = data.progress;
+
+        // Update UI
+        updateCourseProgress(currentCourse);
+        renderLessonList(currentCourse);
+
+        if (currentLessonId === itemId) {
+            updateMarkCompleteButton(item.completed);
+        }
+
+        // Refresh course list in sidebar
+        await loadCourses();
+
+        // Auto-advance to next lesson if marking complete
+        if (data.completed && currentLessonId === itemId) {
+            const currentIndex = currentCourse.items.findIndex(i => i.id === itemId);
+            if (currentIndex < currentCourse.items.length - 1) {
+                setTimeout(() => navigateLesson(1), 500);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to toggle complete:', error);
+        showToast('Failed to update lesson', 'error');
+    }
+}
+
+// Handle notes change with debounce
+function handleNotesChange() {
+    if (elements.notesSaveStatus) {
+        elements.notesSaveStatus.textContent = 'Saving...';
+        elements.notesSaveStatus.className = 'notes-status saving';
+    }
+
+    clearTimeout(notesTimeout);
+    notesTimeout = setTimeout(saveNotes, 1000);
+}
+
+// Save learner notes
+async function saveNotes() {
+    if (!currentCourse || !currentLessonId) return;
+
+    const notes = elements.learnerNotes ? elements.learnerNotes.value : '';
+
+    try {
+        await apiRequest(`/courses/${currentCourse.id}/items/${currentLessonId}/notes`, {
+            method: 'PUT',
+            body: JSON.stringify({ notes })
+        });
+
+        // Update local state
+        const item = currentCourse.items.find(i => i.id === currentLessonId);
+        if (item) {
+            item.learner_notes = notes;
+        }
+
+        if (elements.notesSaveStatus) {
+            elements.notesSaveStatus.textContent = 'Saved';
+            elements.notesSaveStatus.className = 'notes-status saved';
+            setTimeout(() => {
+                if (elements.notesSaveStatus) {
+                    elements.notesSaveStatus.textContent = '';
+                }
+            }, 2000);
+        }
+    } catch (error) {
+        console.error('Failed to save notes:', error);
+        if (elements.notesSaveStatus) {
+            elements.notesSaveStatus.textContent = 'Failed to save';
+            elements.notesSaveStatus.className = 'notes-status';
+        }
+    }
+}
+
+// Set resume position
+async function setResumePosition(itemId) {
+    if (!currentCourse) return;
+
+    try {
+        await apiRequest(`/courses/${currentCourse.id}/resume?item_id=${itemId}`, {
+            method: 'PUT'
+        });
+        currentCourse.current_item_id = itemId;
+    } catch (error) {
+        console.error('Failed to set resume position:', error);
+    }
+}
+
+// Resume course
+function resumeCourse() {
+    if (!currentCourse) return;
+
+    if (currentCourse.current_item_id) {
+        openLesson(currentCourse.current_item_id);
+    } else if (currentCourse.items && currentCourse.items.length > 0) {
+        // Find first incomplete item
+        const firstIncomplete = currentCourse.items.find(i => !i.completed);
+        if (firstIncomplete) {
+            openLesson(firstIncomplete.id);
+        } else {
+            openLesson(currentCourse.items[0].id);
+        }
+    }
+}
+
+// Make showAddLessonsModal globally accessible
+window.showAddLessonsModal = showAddLessonsModal;

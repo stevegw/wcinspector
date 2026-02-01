@@ -25,7 +25,8 @@ scraper_state = {
     "total_pages_estimate": 0,
     "errors": [],
     "category": None,
-    "cancel_requested": False
+    "cancel_requested": False,
+    "debug_log": []
 }
 
 
@@ -359,14 +360,29 @@ def find_docx_files(folder_path: str) -> List[str]:
     docx_files = []
     folder = Path(folder_path)
 
+    print(f"[DEBUG] find_docx_files - looking in: {folder_path}")
+    print(f"[DEBUG] folder.exists(): {folder.exists()}")
+    scraper_state["debug_log"].append(f"find_docx_files: {folder_path}")
+    scraper_state["debug_log"].append(f"folder.exists(): {folder.exists()}")
+
     if not folder.exists():
+        print(f"[DEBUG] Folder does not exist: {folder_path}")
+        scraper_state["debug_log"].append(f"ERROR: Folder does not exist")
         return docx_files
 
-    for file_path in folder.rglob("*.docx"):
-        # Skip temporary files (start with ~$)
-        if file_path.name.startswith("~$"):
-            continue
-        docx_files.append(str(file_path))
+    try:
+        for file_path in folder.rglob("*.docx"):
+            # Skip temporary files (start with ~$)
+            if file_path.name.startswith("~$"):
+                continue
+            print(f"[DEBUG] Found docx: {file_path}")
+            scraper_state["debug_log"].append(f"Found: {file_path.name}")
+            docx_files.append(str(file_path))
+        print(f"[DEBUG] Total docx files found: {len(docx_files)}")
+        scraper_state["debug_log"].append(f"Total files found: {len(docx_files)}")
+    except Exception as e:
+        print(f"[ERROR] Error scanning for docx files: {e}")
+        scraper_state["debug_log"].append(f"ERROR scanning: {e}")
 
     return docx_files
 
@@ -388,7 +404,19 @@ async def run_document_import(db_session, folder_path: str = None, category: str
     if not folder_path:
         folder_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "documents")
 
+    scraper_state["debug_log"] = []  # Reset debug log
+    scraper_state["debug_log"].append(f"folder_path: {folder_path}")
+    scraper_state["debug_log"].append(f"category: {category}")
+    scraper_state["debug_log"].append(f"folder exists: {os.path.exists(folder_path)}")
     print(f"[DEBUG] run_document_import - folder_path: {folder_path}, category: {category}")
+    print(f"[DEBUG] folder exists: {os.path.exists(folder_path)}")
+
+    if not os.path.exists(folder_path):
+        scraper_state["status_text"] = f"Folder does not exist: {folder_path}"
+        scraper_state["progress"] = 100
+        scraper_state["in_progress"] = False
+        print(f"[ERROR] Folder does not exist: {folder_path}")
+        return
 
     scraper_state["in_progress"] = True
     scraper_state["progress"] = 0
@@ -413,57 +441,68 @@ async def run_document_import(db_session, folder_path: str = None, category: str
 
     docs_imported = 0
 
-    for i, file_path in enumerate(docx_files):
-        # Check for cancellation
-        if scraper_state.get("cancel_requested"):
-            scraper_state["status_text"] = "Cancelled by user"
-            scraper_state["in_progress"] = False
-            scraper_state["cancel_requested"] = False
-            return
+    try:
+        for i, file_path in enumerate(docx_files):
+            # Check for cancellation
+            if scraper_state.get("cancel_requested"):
+                scraper_state["status_text"] = "Cancelled by user"
+                scraper_state["in_progress"] = False
+                scraper_state["cancel_requested"] = False
+                return
 
-        scraper_state["current_url"] = file_path
-        scraper_state["status_text"] = f"Importing: {Path(file_path).name}..."
+            scraper_state["current_url"] = file_path
+            scraper_state["status_text"] = f"Importing: {Path(file_path).name}..."
 
-        doc_data = extract_docx_content(file_path)
+            doc_data = extract_docx_content(file_path)
 
-        if doc_data and doc_data.get("content"):
-            # Check if already exists
-            existing = db_session.query(ScrapedPage).filter(
-                ScrapedPage.url == doc_data["url"]
-            ).first()
+            if doc_data and doc_data.get("content"):
+                # Check if already exists
+                existing = db_session.query(ScrapedPage).filter(
+                    ScrapedPage.url == doc_data["url"]
+                ).first()
 
-            new_hash = content_hash(doc_data["content"])
+                new_hash = content_hash(doc_data["content"])
 
-            if existing:
-                # Always update category and other fields when re-importing
-                existing.title = doc_data["title"]
-                existing.content = doc_data["content"]
-                existing.section = doc_data["section"]
-                existing.topic = doc_data["topic"]
-                existing.category = category
-                existing.content_hash = new_hash
-                existing.scraped_at = datetime.utcnow()
+                if existing:
+                    # Always update category and other fields when re-importing
+                    existing.title = doc_data["title"]
+                    existing.content = doc_data["content"]
+                    existing.section = doc_data["section"]
+                    existing.topic = doc_data["topic"]
+                    existing.category = category
+                    existing.content_hash = new_hash
+                    existing.scraped_at = datetime.utcnow()
+                else:
+                    new_page = ScrapedPage(
+                        url=doc_data["url"],
+                        title=doc_data["title"],
+                        content=doc_data["content"],
+                        section=doc_data["section"],
+                        topic=doc_data["topic"],
+                        category=category,
+                        content_hash=new_hash
+                    )
+                    db_session.add(new_page)
+
+                db_session.commit()
+                docs_imported += 1
+                scraper_state["pages_scraped"] = docs_imported
             else:
-                new_page = ScrapedPage(
-                    url=doc_data["url"],
-                    title=doc_data["title"],
-                    content=doc_data["content"],
-                    section=doc_data["section"],
-                    topic=doc_data["topic"],
-                    category=category,
-                    content_hash=new_hash
-                )
-                db_session.add(new_page)
+                scraper_state["errors"].append(f"Failed to extract: {Path(file_path).name}")
 
-            db_session.commit()
-            docs_imported += 1
-            scraper_state["pages_scraped"] = docs_imported
-        else:
-            scraper_state["errors"].append(f"Failed to extract: {Path(file_path).name}")
+            # Update progress
+            progress = ((i + 1) / len(docx_files)) * 100
+            scraper_state["progress"] = min(progress, 99)
 
-        # Update progress
-        progress = ((i + 1) / len(docx_files)) * 100
-        scraper_state["progress"] = min(progress, 99)
+    except Exception as e:
+        print(f"[ERROR] Import failed: {e}")
+        import traceback
+        traceback.print_exc()
+        scraper_state["status_text"] = f"Import failed: {str(e)}"
+        scraper_state["errors"].append(f"Import error: {str(e)}")
+        scraper_state["progress"] = 100
+        scraper_state["in_progress"] = False
+        return
 
     # Update stats
     end_time = datetime.utcnow()

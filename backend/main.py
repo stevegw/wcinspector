@@ -3,21 +3,38 @@ WCInspector - Windchill Documentation Knowledge Base
 Main FastAPI Application Entry Point
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 import os
 import httpx
 from sqlalchemy import text
 from datetime import datetime
 from database import SessionLocal, engine, Base
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan handler for startup and shutdown events"""
+    # Startup
+    from database import init_db
+    init_db()
+    print("WCInspector API starting...")
+
+    yield  # App runs here
+
+    # Shutdown
+    print("WCInspector API shutting down...")
+
+
 # Create FastAPI application
 app = FastAPI(
     title="WCInspector API",
     description="AI-powered Windchill documentation knowledge base",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # Configure CORS for frontend access
@@ -171,7 +188,7 @@ async def ask_question(request: AskRequest):
 
     question_text = request.question.strip()
     if not question_text:
-        return {"error": "Question cannot be empty"}, 400
+        return JSONResponse(status_code=400, content={"error": "Question cannot be empty"})
 
     topic_filter = request.topic_filter
     category = request.category
@@ -268,7 +285,7 @@ async def get_question(question_id: int):
         question = db.query(Question).filter(Question.id == question_id).first()
 
         if not question:
-            return {"error": "Question not found"}, 404
+            return JSONResponse(status_code=404, content={"error": "Question not found"})
 
         # Update last accessed time
         question.last_accessed_at = datetime.utcnow()
@@ -311,7 +328,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
         question = db.query(Question).filter(Question.id == question_id).first()
 
         if not question:
-            return {"error": "Question not found"}, 404
+            return JSONResponse(status_code=404, content={"error": "Question not found"})
 
         # Get current settings
         settings_records = db.query(Setting).all()
@@ -389,7 +406,6 @@ async def clear_questions():
 async def export_history():
     """Export Q&A history as JSON"""
     from database import SessionLocal, Question, Answer
-    from fastapi.responses import JSONResponse
     import json
 
     db = SessionLocal()
@@ -581,7 +597,8 @@ async def get_scraper_status():
         "current_url": state["current_url"],
         "pages_scraped": state["pages_scraped"],
         "total_pages_estimate": state["total_pages_estimate"],
-        "errors": state["errors"]
+        "errors": state["errors"],
+        "debug_log": state.get("debug_log", [])
     }
 
 
@@ -920,22 +937,664 @@ def log_error(error_type: str, message: str, stack_trace: str = None):
         db.close()
 
 
-# Startup event
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database and other resources on startup"""
-    from database import init_db
-    init_db()
-    print("WCInspector API starting...")
+# ============== Courses API Endpoints ==============
+
+from typing import List
 
 
-# Shutdown event
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup resources on shutdown"""
-    print("WCInspector API shutting down...")
+class CourseCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+
+
+class CourseUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+
+
+class CourseItemCreate(BaseModel):
+    page_id: int
+    instructor_notes: Optional[str] = None
+
+
+class CourseItemUpdate(BaseModel):
+    instructor_notes: Optional[str] = None
+    position: Optional[int] = None
+
+
+class CourseReorder(BaseModel):
+    item_ids: List[int]
+
+
+class LearnerNotes(BaseModel):
+    notes: str
+
+
+class GenerateCourseRequest(BaseModel):
+    topic: str
+    category: Optional[str] = None
+    num_lessons: int = 5
+
+
+@app.get("/api/courses")
+async def list_courses():
+    """List all courses with progress stats"""
+    from database import SessionLocal, Course, CourseItem
+
+    db = SessionLocal()
+    try:
+        courses = db.query(Course).order_by(Course.updated_at.desc()).all()
+
+        result = []
+        for course in courses:
+            total_items = len(course.items)
+            completed_items = sum(1 for item in course.items if item.completed)
+            progress = (completed_items / total_items * 100) if total_items > 0 else 0
+
+            result.append({
+                "id": course.id,
+                "title": course.title,
+                "description": course.description,
+                "category": course.category,
+                "current_item_id": course.current_item_id,
+                "total_items": total_items,
+                "completed_items": completed_items,
+                "progress": round(progress, 1),
+                "created_at": course.created_at.isoformat() if course.created_at else None,
+                "updated_at": course.updated_at.isoformat() if course.updated_at else None
+            })
+
+        return {"courses": result}
+    finally:
+        db.close()
+
+
+@app.get("/api/courses/{course_id}")
+async def get_course(course_id: int):
+    """Get course with items and page details"""
+    from database import SessionLocal, Course
+
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+
+        if not course:
+            return JSONResponse(status_code=404, content={"error": "Course not found"})
+
+        total_items = len(course.items)
+        completed_items = sum(1 for item in course.items if item.completed)
+        progress = (completed_items / total_items * 100) if total_items > 0 else 0
+
+        items = []
+        for item in course.items:
+            page = item.page
+            items.append({
+                "id": item.id,
+                "position": item.position,
+                "page_id": item.page_id,
+                "page_title": page.title if page else "Unknown",
+                "page_url": page.url if page else None,
+                "page_content": page.content if page else None,
+                "instructor_notes": item.instructor_notes,
+                "learner_notes": item.learner_notes,
+                "completed": item.completed,
+                "completed_at": item.completed_at.isoformat() if item.completed_at else None
+            })
+
+        return {
+            "id": course.id,
+            "title": course.title,
+            "description": course.description,
+            "category": course.category,
+            "current_item_id": course.current_item_id,
+            "total_items": total_items,
+            "completed_items": completed_items,
+            "progress": round(progress, 1),
+            "items": items,
+            "created_at": course.created_at.isoformat() if course.created_at else None,
+            "updated_at": course.updated_at.isoformat() if course.updated_at else None
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/courses")
+async def create_course(course_data: CourseCreate):
+    """Create a new course"""
+    from database import SessionLocal, Course
+
+    db = SessionLocal()
+    try:
+        course = Course(
+            title=course_data.title,
+            description=course_data.description,
+            category=course_data.category
+        )
+        db.add(course)
+        db.commit()
+        db.refresh(course)
+
+        return {
+            "id": course.id,
+            "title": course.title,
+            "description": course.description,
+            "category": course.category,
+            "created_at": course.created_at.isoformat() if course.created_at else None
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/courses/generate")
+async def generate_ai_course(request: GenerateCourseRequest):
+    """Generate an AI-structured course based on a topic"""
+    from database import SessionLocal, Course, CourseItem, ScrapedPage
+    from rag import generate_course
+
+    # Generate course content with AI
+    result = await generate_course(
+        topic=request.topic,
+        category=request.category,
+        num_lessons=request.num_lessons
+    )
+
+    if not result.get("success"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": result.get("error", "Failed to generate course")}
+        )
+
+    course_data = result.get("course", {})
+
+    # Create the course in database
+    db = SessionLocal()
+    try:
+        # Create course record
+        course = Course(
+            title=course_data.get("title", request.topic),
+            description=course_data.get("description", ""),
+            category=request.category
+        )
+        db.add(course)
+        db.commit()
+        db.refresh(course)
+
+        # Create lessons as course items with AI-generated content
+        # We'll store the AI content in a new way - using instructor_notes for the AI content
+        # and linking to relevant scraped pages
+        lessons = course_data.get("lessons", [])
+        for position, lesson in enumerate(lessons):
+            # Try to find a matching scraped page to link to (optional)
+            page_id = None
+            source_urls = lesson.get("source_urls", [])
+            if source_urls:
+                page = db.query(ScrapedPage).filter(
+                    ScrapedPage.url == source_urls[0]
+                ).first()
+                if page:
+                    page_id = page.id
+
+            # If no matching page, create a placeholder or skip linking
+            # For AI-generated courses, we'll store content differently
+            # Create a virtual page or store in instructor_notes
+
+            # Store AI-generated content as a JSON blob in instructor_notes
+            import json
+            ai_content = json.dumps({
+                "title": lesson.get("title", f"Lesson {position + 1}"),
+                "summary": lesson.get("summary", ""),
+                "content": lesson.get("content", ""),
+                "key_points": lesson.get("key_points", []),
+                "source_urls": source_urls,
+                "ai_generated": True
+            })
+
+            # If we have a page_id, use it; otherwise we need to handle this differently
+            # For now, let's find ANY related page or use first page in DB
+            if not page_id:
+                # Try to find a page by searching for keywords in the lesson title
+                search_term = f"%{lesson.get('title', '').split()[0] if lesson.get('title') else 'windchill'}%"
+                page = db.query(ScrapedPage).filter(
+                    ScrapedPage.title.ilike(search_term)
+                ).first()
+                if page:
+                    page_id = page.id
+                else:
+                    # Get first available page as fallback
+                    page = db.query(ScrapedPage).first()
+                    if page:
+                        page_id = page.id
+
+            if page_id:
+                item = CourseItem(
+                    course_id=course.id,
+                    page_id=page_id,
+                    position=position,
+                    instructor_notes=ai_content
+                )
+                db.add(item)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "course_id": course.id,
+            "title": course.title,
+            "description": course.description,
+            "num_lessons": len(lessons),
+            "sources_used": result.get("sources_used", 0)
+        }
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to save course: {str(e)}"}
+        )
+    finally:
+        db.close()
+
+
+@app.put("/api/courses/{course_id}")
+async def update_course(course_id: int, course_data: CourseUpdate):
+    """Update course title/description"""
+    from database import SessionLocal, Course
+
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+
+        if not course:
+            return JSONResponse(status_code=404, content={"error": "Course not found"})
+
+        if course_data.title is not None:
+            course.title = course_data.title
+        if course_data.description is not None:
+            course.description = course_data.description
+        if course_data.category is not None:
+            course.category = course_data.category
+
+        db.commit()
+        db.refresh(course)
+
+        return {
+            "id": course.id,
+            "title": course.title,
+            "description": course.description,
+            "category": course.category,
+            "updated_at": course.updated_at.isoformat() if course.updated_at else None
+        }
+    finally:
+        db.close()
+
+
+@app.delete("/api/courses/{course_id}")
+async def delete_course(course_id: int):
+    """Delete a course (cascade deletes items)"""
+    from database import SessionLocal, Course
+
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+
+        if not course:
+            return JSONResponse(status_code=404, content={"error": "Course not found"})
+
+        db.delete(course)
+        db.commit()
+
+        return {"status": "success", "message": "Course deleted"}
+    finally:
+        db.close()
+
+
+@app.post("/api/courses/{course_id}/items")
+async def add_course_item(course_id: int, item_data: CourseItemCreate):
+    """Add a page to a course"""
+    from database import SessionLocal, Course, CourseItem, ScrapedPage
+
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if not course:
+            return JSONResponse(status_code=404, content={"error": "Course not found"})
+
+        page = db.query(ScrapedPage).filter(ScrapedPage.id == item_data.page_id).first()
+        if not page:
+            return JSONResponse(status_code=404, content={"error": "Page not found"})
+
+        # Get the next position
+        max_pos = db.query(CourseItem).filter(CourseItem.course_id == course_id).count()
+
+        item = CourseItem(
+            course_id=course_id,
+            page_id=item_data.page_id,
+            position=max_pos,
+            instructor_notes=item_data.instructor_notes
+        )
+        db.add(item)
+        db.commit()
+        db.refresh(item)
+
+        return {
+            "id": item.id,
+            "course_id": course_id,
+            "page_id": item.page_id,
+            "page_title": page.title,
+            "position": item.position,
+            "instructor_notes": item.instructor_notes
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/courses/{course_id}/items/{item_id}")
+async def update_course_item(course_id: int, item_id: int, item_data: CourseItemUpdate):
+    """Update a course item (notes, position)"""
+    from database import SessionLocal, CourseItem
+
+    db = SessionLocal()
+    try:
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found"})
+
+        if item_data.instructor_notes is not None:
+            item.instructor_notes = item_data.instructor_notes
+        if item_data.position is not None:
+            item.position = item_data.position
+
+        db.commit()
+
+        return {"status": "success", "message": "Item updated"}
+    finally:
+        db.close()
+
+
+@app.delete("/api/courses/{course_id}/items/{item_id}")
+async def remove_course_item(course_id: int, item_id: int):
+    """Remove an item from a course"""
+    from database import SessionLocal, CourseItem
+
+    db = SessionLocal()
+    try:
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found"})
+
+        removed_position = item.position
+        db.delete(item)
+
+        # Reorder remaining items
+        remaining_items = db.query(CourseItem).filter(
+            CourseItem.course_id == course_id,
+            CourseItem.position > removed_position
+        ).all()
+
+        for remaining in remaining_items:
+            remaining.position -= 1
+
+        db.commit()
+
+        return {"status": "success", "message": "Item removed"}
+    finally:
+        db.close()
+
+
+@app.put("/api/courses/{course_id}/reorder")
+async def reorder_course_items(course_id: int, reorder_data: CourseReorder):
+    """Reorder all items in a course"""
+    from database import SessionLocal, Course, CourseItem
+
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if not course:
+            return JSONResponse(status_code=404, content={"error": "Course not found"})
+
+        for new_pos, item_id in enumerate(reorder_data.item_ids):
+            item = db.query(CourseItem).filter(
+                CourseItem.id == item_id,
+                CourseItem.course_id == course_id
+            ).first()
+            if item:
+                item.position = new_pos
+
+        db.commit()
+
+        return {"status": "success", "message": "Items reordered"}
+    finally:
+        db.close()
+
+
+@app.post("/api/courses/{course_id}/items/{item_id}/complete")
+async def mark_lesson_complete(course_id: int, item_id: int):
+    """Mark a lesson as complete"""
+    from database import SessionLocal, CourseItem, Course
+
+    db = SessionLocal()
+    try:
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found"})
+
+        item.completed = True
+        item.completed_at = datetime.utcnow()
+
+        # Update resume position to next incomplete item
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if course:
+            # Find next incomplete item after this one
+            next_items = db.query(CourseItem).filter(
+                CourseItem.course_id == course_id,
+                CourseItem.position > item.position,
+                CourseItem.completed == False
+            ).order_by(CourseItem.position).first()
+
+            if next_items:
+                course.current_item_id = next_items.id
+
+        db.commit()
+
+        # Calculate new progress
+        total = db.query(CourseItem).filter(CourseItem.course_id == course_id).count()
+        completed = db.query(CourseItem).filter(
+            CourseItem.course_id == course_id,
+            CourseItem.completed == True
+        ).count()
+        progress = (completed / total * 100) if total > 0 else 0
+
+        return {
+            "status": "success",
+            "completed": True,
+            "completed_at": item.completed_at.isoformat(),
+            "progress": round(progress, 1),
+            "completed_items": completed,
+            "total_items": total
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/courses/{course_id}/items/{item_id}/uncomplete")
+async def mark_lesson_incomplete(course_id: int, item_id: int):
+    """Mark a lesson as incomplete"""
+    from database import SessionLocal, CourseItem
+
+    db = SessionLocal()
+    try:
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found"})
+
+        item.completed = False
+        item.completed_at = None
+        db.commit()
+
+        # Calculate new progress
+        total = db.query(CourseItem).filter(CourseItem.course_id == course_id).count()
+        completed = db.query(CourseItem).filter(
+            CourseItem.course_id == course_id,
+            CourseItem.completed == True
+        ).count()
+        progress = (completed / total * 100) if total > 0 else 0
+
+        return {
+            "status": "success",
+            "completed": False,
+            "progress": round(progress, 1),
+            "completed_items": completed,
+            "total_items": total
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/courses/{course_id}/items/{item_id}/notes")
+async def save_learner_notes(course_id: int, item_id: int, notes_data: LearnerNotes):
+    """Save learner notes for a lesson"""
+    from database import SessionLocal, CourseItem
+
+    db = SessionLocal()
+    try:
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found"})
+
+        item.learner_notes = notes_data.notes
+        db.commit()
+
+        return {"status": "success", "message": "Notes saved"}
+    finally:
+        db.close()
+
+
+@app.put("/api/courses/{course_id}/resume")
+async def set_resume_position(course_id: int, item_id: int):
+    """Set the resume position for a course"""
+    from database import SessionLocal, Course, CourseItem
+
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if not course:
+            return JSONResponse(status_code=404, content={"error": "Course not found"})
+
+        # Verify item exists in course
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found in course"})
+
+        course.current_item_id = item_id
+        db.commit()
+
+        return {"status": "success", "current_item_id": item_id}
+    finally:
+        db.close()
+
+
+@app.get("/api/pages/search")
+async def search_pages(q: str = "", category: str = None, limit: int = 200):
+    """Search pages to add to a course"""
+    from database import SessionLocal, ScrapedPage
+
+    db = SessionLocal()
+    try:
+        query = db.query(ScrapedPage)
+
+        if q:
+            search_term = f"%{q}%"
+            query = query.filter(
+                (ScrapedPage.title.ilike(search_term)) |
+                (ScrapedPage.content.ilike(search_term))
+            )
+
+        if category:
+            query = query.filter(ScrapedPage.category == category)
+
+        pages = query.order_by(ScrapedPage.title).limit(limit).all()
+
+        return {
+            "pages": [
+                {
+                    "id": page.id,
+                    "title": page.title or "Untitled",
+                    "url": page.url,
+                    "category": page.category,
+                    "topic": page.topic
+                }
+                for page in pages
+            ]
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/pages/by-url")
+async def get_page_by_url(url: str):
+    """Get page content by URL - useful for viewing local file content"""
+    from database import SessionLocal, ScrapedPage
+    from urllib.parse import unquote
+
+    # Decode URL-encoded characters
+    url = unquote(url)
+
+    db = SessionLocal()
+    try:
+        # Try exact match first
+        page = db.query(ScrapedPage).filter(ScrapedPage.url == url).first()
+
+        # If not found and it's a file URL, try alternate formats
+        if not page and url.startswith('file://'):
+            # Normalize: file:/// -> file:// and vice versa
+            if url.startswith('file:///'):
+                alt_url = 'file://' + url[8:]  # Remove one slash
+            else:
+                alt_url = 'file:///' + url[7:]  # Add one slash
+            page = db.query(ScrapedPage).filter(ScrapedPage.url == alt_url).first()
+
+        if not page:
+            return JSONResponse(status_code=404, content={"error": "Page not found"})
+
+        return {
+            "id": page.id,
+            "title": page.title or "Untitled",
+            "url": page.url,
+            "content": page.content,
+            "category": page.category,
+            "section": page.section,
+            "topic": page.topic,
+            "is_local": page.url.startswith("file://")
+        }
+    finally:
+        db.close()
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)

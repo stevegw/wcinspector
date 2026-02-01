@@ -677,3 +677,157 @@ def get_vectorstore_stats() -> Dict:
         }
     except Exception as e:
         return {"count": 0, "status": f"error: {str(e)}", "categories": {}}
+
+
+async def generate_course(
+    topic: str,
+    category: str = None,
+    num_lessons: int = 5,
+    provider: str = None,
+    model: str = None,
+    groq_model: str = None
+) -> Dict:
+    """
+    Generate an AI-structured course based on a topic.
+
+    1. Search for relevant documents using the topic
+    2. Use LLM to create a course outline
+    3. Generate content for each lesson
+    """
+    from database import SessionLocal, Setting
+
+    # Get settings if not provided
+    if not provider or not model or not groq_model:
+        db = SessionLocal()
+        try:
+            settings_records = db.query(Setting).all()
+            settings = {record.key: record.value for record in settings_records}
+            provider = provider or settings.get("llm_provider", "groq")
+            model = model or settings.get("ollama_model", "llama3:8b")
+            groq_model = groq_model or settings.get("groq_model", "llama-3.1-8b-instant")
+        finally:
+            db.close()
+
+    # Step 1: Search for relevant documents (get more for course building)
+    context_docs = await search_similar_documents(
+        topic, n_results=20, category=category
+    )
+
+    if not context_docs:
+        return {
+            "success": False,
+            "error": "No relevant documentation found for this topic."
+        }
+
+    # Build context from documents
+    context_text = "\n\n".join([
+        f"Source: {doc.get('title', 'Untitled')}\nURL: {doc.get('url', '')}\nContent: {doc.get('content', '')[:1500]}"
+        for doc in context_docs[:15]
+    ])
+
+    # Step 2: Generate course outline and content with LLM
+    system_prompt = """You are an expert technical trainer creating educational courses about PTC Windchill and Creo software.
+
+Your task is to create a structured learning course based on the provided documentation.
+
+You MUST respond with valid JSON only, no other text. Use this exact format:
+{
+  "title": "Course title here",
+  "description": "Brief course description",
+  "lessons": [
+    {
+      "title": "Lesson 1 title",
+      "summary": "Brief summary of what this lesson covers",
+      "content": "Full lesson content with clear explanations. Use bullet points for lists. Include practical tips.",
+      "key_points": ["Key point 1", "Key point 2", "Key point 3"],
+      "source_titles": ["Source page title 1", "Source page title 2"]
+    }
+  ]
+}
+
+Guidelines:
+- Create clear, educational content suitable for professionals
+- Organize lessons in a logical learning progression
+- Synthesize information from multiple sources into coherent lessons
+- Include practical tips and real-world applications
+- Each lesson should be self-contained but build on previous lessons
+- Use clear headings and bullet points in the content
+- Include 3-5 key points per lesson"""
+
+    user_prompt = f"""Create a {num_lessons}-lesson course about: {topic}
+
+Use the following documentation as source material:
+
+{context_text}
+
+Remember: Respond with valid JSON only."""
+
+    try:
+        if provider == "groq" and groq_client:
+            response = groq_client.chat.completions.create(
+                model=groq_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000
+            )
+            course_json = response.choices[0].message.content
+        else:
+            # Use Ollama
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": user_prompt,
+                        "system": system_prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.7,
+                            "num_predict": 4000
+                        }
+                    }
+                )
+                if response.status_code == 200:
+                    course_json = response.json().get("response", "")
+                else:
+                    return {"success": False, "error": f"Ollama error: {response.status_code}"}
+
+        # Parse the JSON response
+        # Clean up the response - remove markdown code blocks if present
+        course_json = course_json.strip()
+        if course_json.startswith("```json"):
+            course_json = course_json[7:]
+        if course_json.startswith("```"):
+            course_json = course_json[3:]
+        if course_json.endswith("```"):
+            course_json = course_json[:-3]
+        course_json = course_json.strip()
+
+        course_data = json.loads(course_json)
+
+        # Add source URLs to lessons
+        source_map = {doc.get('title', ''): doc.get('url', '') for doc in context_docs}
+        for lesson in course_data.get("lessons", []):
+            lesson["source_urls"] = [
+                source_map.get(title, "")
+                for title in lesson.get("source_titles", [])
+                if source_map.get(title)
+            ]
+
+        return {
+            "success": True,
+            "course": course_data,
+            "sources_used": len(context_docs)
+        }
+
+    except json.JSONDecodeError as e:
+        return {
+            "success": False,
+            "error": f"Failed to parse AI response as JSON: {str(e)}",
+            "raw_response": course_json[:500] if 'course_json' in locals() else None
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Error generating course: {str(e)}"}

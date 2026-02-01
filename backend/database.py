@@ -69,6 +69,8 @@ class ScrapedPage(Base):
 
     # Relationship to images
     images = relationship("ScrapedImage", back_populates="page", cascade="all, delete-orphan")
+    # Relationship to course items
+    course_items = relationship("CourseItem", back_populates="page")
 
 
 class ScrapedImage(Base):
@@ -145,6 +147,41 @@ class ErrorLog(Base):
     message = Column(Text)
     stack_trace = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Course(Base):
+    """Model for storing learning courses/playlists"""
+    __tablename__ = "courses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(200), nullable=False)
+    description = Column(Text)
+    category = Column(String(100))  # Optional grouping
+    current_item_id = Column(Integer)  # Resume position (item id)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationship to course items
+    items = relationship("CourseItem", back_populates="course",
+                        cascade="all, delete-orphan", order_by="CourseItem.position")
+
+
+class CourseItem(Base):
+    """Model for storing items within a course"""
+    __tablename__ = "course_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    course_id = Column(Integer, ForeignKey("courses.id"), nullable=False)
+    page_id = Column(Integer, ForeignKey("scraped_pages.id"), nullable=False)
+    position = Column(Integer, nullable=False)  # Order in course
+    instructor_notes = Column(Text)  # Notes from course creator
+    learner_notes = Column(Text)  # Personal notes while learning
+    completed = Column(Boolean, default=False)
+    completed_at = Column(DateTime)
+
+    # Relationships
+    course = relationship("Course", back_populates="items")
+    page = relationship("ScrapedPage", back_populates="course_items")
 
 
 # Default settings
