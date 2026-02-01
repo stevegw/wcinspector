@@ -54,12 +54,6 @@ DOC_CATEGORIES = {
         "base_url": "https://community.ptc.com/t5/Creo-Parametric/bd-p/crlounge",
         "description": "PTC Community Creo Discussions",
         "type": "community"
-    },
-    "internal-docs": {
-        "name": "Internal Documents",
-        "base_url": "",
-        "description": "Imported Word documents and internal knowledge",
-        "type": "documents"
     }
 }
 
