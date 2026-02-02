@@ -2093,15 +2093,41 @@ select:focus {
 }
 
 .lesson-notes-section {
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-sm) var(--space-lg);
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
 }
 
-.lesson-notes-section h4 {
-    margin: 0 0 var(--space-sm) 0;
+.lesson-notes-section .notes-toggle {
+    margin: 0;
     font-size: 0.875rem;
     color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.lesson-notes-section .notes-toggle:hover {
+    color: var(--text-primary);
+}
+
+.lesson-notes-section .toggle-icon {
+    font-size: 0.7rem;
+    transition: transform 0.2s;
+}
+
+.lesson-notes-section.collapsed .notes-content {
+    display: none;
+}
+
+.lesson-notes-section:not(.collapsed) .toggle-icon {
+    transform: rotate(90deg);
+}
+
+.lesson-notes-section:not(.collapsed) .notes-toggle {
+    margin-bottom: var(--space-sm);
 }
 
 .lesson-notes-section textarea {
@@ -2113,6 +2139,7 @@ select:focus {
     color: var(--text-primary);
     font-family: inherit;
     resize: none;
+    box-sizing: border-box;
 }
 
 .notes-status {

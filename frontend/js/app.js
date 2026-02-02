@@ -2394,7 +2394,8 @@ function formatLessonContent(content) {
 let quizState = {
     courseId: null,
     answers: {},  // itemId -> { selectedIndex, isCorrect }
-    total: 0
+    total: 0,
+    sourceUrls: []  // Source URLs for the quiz
 };
 
 // Initialize quiz state for a course, loading saved answers from backend
@@ -2403,11 +2404,13 @@ function initQuizState(courseId, totalQuestions, courseItems) {
         quizState = {
             courseId: courseId,
             answers: {},
-            total: totalQuestions
+            total: totalQuestions,
+            sourceUrls: []
         };
 
-        // Load saved answers from course items
+        // Load saved answers and collect source URLs from course items
         if (courseItems) {
+            const urlSet = new Set();
             courseItems.forEach(item => {
                 if (item.quiz_answer !== null && item.quiz_answer !== undefined) {
                     quizState.answers[item.id] = {
@@ -2415,7 +2418,17 @@ function initQuizState(courseId, totalQuestions, courseItems) {
                         isCorrect: item.quiz_correct === true
                     };
                 }
+                // Collect source URLs from instructor_notes
+                if (item.instructor_notes) {
+                    try {
+                        const data = JSON.parse(item.instructor_notes);
+                        if (data.source_urls) {
+                            data.source_urls.forEach(url => urlSet.add(url));
+                        }
+                    } catch (e) { /* ignore */ }
+                }
             });
+            quizState.sourceUrls = Array.from(urlSet);
         }
     }
     updateQuizScoreBar();
@@ -2442,13 +2455,18 @@ function updateQuizScoreBar() {
     const { correct, answered, total } = getQuizScore();
     const percentage = answered > 0 ? Math.round((correct / answered) * 100) : 0;
 
+    // Build source link if URLs available
+    let sourceLink = '';
+    if (quizState.sourceUrls && quizState.sourceUrls.length > 0) {
+        const firstUrl = quizState.sourceUrls[0];
+        sourceLink = `<a href="${escapeHtml(firstUrl)}" target="_blank" class="btn btn-small btn-secondary">View Original</a>`;
+    }
+
     scoreBar.innerHTML = `
-        <div class="quiz-progress">
-            <span>Question ${answered} of ${total}</span>
-        </div>
         <div id="quiz-score-display">
             Score: <strong>${correct}/${answered}</strong> (${percentage}%)
         </div>
+        ${sourceLink}
     `;
     scoreBar.style.display = 'flex';
 }
@@ -2675,6 +2693,14 @@ function toggleOldAnswer(button) {
     }
 }
 
+// Toggle notes section visibility
+function toggleNotesSection(header) {
+    const section = header.closest('.lesson-notes-section');
+    if (section) {
+        section.classList.toggle('collapsed');
+    }
+}
+
 // Format AI-generated lesson content
 function formatAILessonContent(aiContent, itemId) {
     if (!aiContent) return '<p class="empty-state">No content available</p>';
@@ -2793,42 +2819,50 @@ function openLesson(itemId) {
         }
     }
 
-    // Update lesson number
-    if (elements.lessonNumber) {
-        elements.lessonNumber.textContent = index + 1;
-    }
+    // Check if this is a quiz question
+    const isQuizQuestion = aiContent && aiContent.type === 'question';
 
-    // Update lesson title
-    if (elements.lessonTitle) {
-        if (aiContent && aiContent.type === 'question') {
-            // For questions, show "Question X" as title
-            elements.lessonTitle.textContent = `Question ${index + 1}`;
+    // Hide/show lesson header based on content type
+    const lessonHeader = document.querySelector('.lesson-detail-header');
+    if (lessonHeader) {
+        if (isQuizQuestion) {
+            lessonHeader.style.display = 'none';
         } else {
-            elements.lessonTitle.textContent = aiContent ? aiContent.title : item.page_title;
-        }
-    }
+            lessonHeader.style.display = '';
 
-    // Update source link
-    if (elements.lessonSourceLink) {
-        if (item.page_url) {
-            if (item.page_url.startsWith('file://')) {
-                // Local file - change to view content button
-                elements.lessonSourceLink.href = '#';
-                elements.lessonSourceLink.textContent = 'View Source Content';
-                elements.lessonSourceLink.onclick = (e) => {
-                    e.preventDefault();
-                    viewLocalDocument(item.page_url);
-                };
-                elements.lessonSourceLink.style.display = '';
-            } else {
-                // Remote URL - normal link
-                elements.lessonSourceLink.href = item.page_url;
-                elements.lessonSourceLink.textContent = 'View Original';
-                elements.lessonSourceLink.onclick = null;
-                elements.lessonSourceLink.style.display = '';
+            // Update lesson number
+            if (elements.lessonNumber) {
+                elements.lessonNumber.textContent = index + 1;
             }
-        } else {
-            elements.lessonSourceLink.style.display = 'none';
+
+            // Update lesson title
+            if (elements.lessonTitle) {
+                elements.lessonTitle.textContent = aiContent ? aiContent.title : item.page_title;
+            }
+
+            // Update source link
+            if (elements.lessonSourceLink) {
+                if (item.page_url) {
+                    if (item.page_url.startsWith('file://')) {
+                        // Local file - change to view content button
+                        elements.lessonSourceLink.href = '#';
+                        elements.lessonSourceLink.textContent = 'View Source Content';
+                        elements.lessonSourceLink.onclick = (e) => {
+                            e.preventDefault();
+                            viewLocalDocument(item.page_url);
+                        };
+                        elements.lessonSourceLink.style.display = '';
+                    } else {
+                        // Remote URL - normal link
+                        elements.lessonSourceLink.href = item.page_url;
+                        elements.lessonSourceLink.textContent = 'View Original';
+                        elements.lessonSourceLink.onclick = null;
+                        elements.lessonSourceLink.style.display = '';
+                    }
+                } else {
+                    elements.lessonSourceLink.style.display = 'none';
+                }
+            }
         }
     }
 
@@ -2875,13 +2909,10 @@ function openLesson(itemId) {
         elements.notesSaveStatus.className = 'notes-status';
     }
 
-    // Check if this is a quiz course
-    const isQuizCourse = aiContent && aiContent.type === 'question';
-
     // Hide/show navigation and mark complete based on content type
     const lessonActions = document.querySelector('.lesson-actions');
     if (lessonActions) {
-        if (isQuizCourse) {
+        if (isQuizQuestion) {
             lessonActions.style.display = 'none';
         } else {
             lessonActions.style.display = '';

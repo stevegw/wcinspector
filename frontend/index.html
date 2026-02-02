@@ -496,10 +496,14 @@
                     <!-- Formatted page content -->
                 </div>
 
-                <div class="lesson-notes-section">
-                    <h4>My Notes</h4>
-                    <textarea id="learner-notes" placeholder="Take notes as you learn..." rows="3"></textarea>
-                    <span id="notes-save-status" class="notes-status"></span>
+                <div class="lesson-notes-section collapsed">
+                    <h4 class="notes-toggle" onclick="toggleNotesSection(this)">
+                        <span class="toggle-icon">▶</span> My Notes
+                    </h4>
+                    <div class="notes-content">
+                        <textarea id="learner-notes" placeholder="Take notes as you learn..." rows="3"></textarea>
+                        <span id="notes-save-status" class="notes-status"></span>
+                    </div>
                 </div>
 
                 <div class="lesson-actions">
