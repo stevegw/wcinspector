@@ -284,7 +284,7 @@
     <div class="modal hidden" id="import-modal">
         <div class="modal-content modal-wide">
             <div class="modal-header">
-                <h2>Import Word Documents</h2>
+                <h2>Import Documents</h2>
                 <button class="modal-close" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
@@ -296,11 +296,18 @@
                     <div class="browser-drives" id="browser-drives">
                         <!-- Drives will be populated by JavaScript -->
                     </div>
+                    <div class="browser-select-all" id="browser-select-all" style="display: none;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="select-all-files">
+                            <span>Select All</span>
+                        </label>
+                    </div>
                     <div class="browser-content" id="browser-content">
                         <!-- Folders and files will be populated by JavaScript -->
                     </div>
                     <div class="browser-selected">
                         <span id="browser-file-count">0 documents found</span>
+                        <span id="browser-selected-count" style="margin-left: 10px;"></span>
                     </div>
                 </div>
                 <div class="import-options">

@@ -1414,10 +1414,65 @@ a:hover { color: var(--accent-hover); }
 
 .browser-item.file {
     color: var(--text-secondary);
-    cursor: default;
+    cursor: pointer;
+}
+
+.browser-item.file.imported {
+    opacity: 0.6;
+}
+
+.browser-item.file.imported .file-name {
+    text-decoration: line-through;
+}
+
+.file-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    width: 100%;
+}
+
+.file-checkbox {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+}
+
+.file-name {
+    flex: 1;
+}
+
+.imported-label {
+    color: var(--success-color);
+    font-size: 0.75rem;
+    margin-left: var(--space-xs);
+}
+
+.browser-select-all {
+    padding: var(--space-xs) var(--space-sm);
+    border-bottom: 1px solid var(--border-color);
+    background-color: var(--bg-tertiary);
+}
+
+.browser-select-all .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.browser-select-all input[type="checkbox"] {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
 }
 
 .browser-selected {
+    display: flex;
+    align-items: center;
     padding: var(--space-sm);
     border-top: 1px solid var(--border-color);
     font-size: 0.875rem;

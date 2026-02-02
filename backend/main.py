@@ -672,6 +672,7 @@ async def start_targeted_scrape(section: str = None, max_pages: int = 20):
 class ImportDocsRequest(BaseModel):
     folder_path: Optional[str] = None
     category: Optional[str] = "internal-docs"
+    selected_files: Optional[list[str]] = None  # List of specific file paths to import
 
 
 @app.get("/api/browse-folders")
@@ -713,9 +714,21 @@ async def browse_folders(path: str = None):
         if parent != folder:  # Not at root
             result["parent_path"] = str(parent.resolve())
 
-        # List folders and .docx files
+        # List folders and .docx/.pdf files
         folders = []
         files = []
+
+        # Get list of already imported file URLs from database
+        imported_urls = set()
+        try:
+            db = SessionLocal()
+            pages = db.query(ScrapedPage).filter(ScrapedPage.url.like("file://%")).all()
+            for page in pages:
+                # Extract filename from file:// URL
+                imported_urls.add(page.url)
+            db.close()
+        except Exception as e:
+            print(f"Error checking imported files: {e}")
 
         try:
             for item in sorted(folder.iterdir()):
@@ -726,11 +739,16 @@ async def browse_folders(path: str = None):
                         "name": item.name,
                         "path": str(item.resolve())
                     })
-                elif item.suffix.lower() == '.docx':
+                elif item.suffix.lower() in ['.docx', '.pdf']:
+                    file_path = str(item.resolve())
+                    # Check if already imported by matching the file:// URL format
+                    file_url = f"file://{item.resolve().as_posix()}"
+                    is_imported = file_url in imported_urls
                     files.append({
                         "name": item.name,
-                        "path": str(item.resolve()),
-                        "size": item.stat().st_size
+                        "path": file_path,
+                        "size": item.stat().st_size,
+                        "imported": is_imported
                     })
         except PermissionError:
             return {"error": f"Permission denied: {path}"}
@@ -758,12 +776,13 @@ async def import_documents(request: ImportDocsRequest = None):
 
     folder_path = request.folder_path if request else None
     category = request.category if request and request.category else "internal-docs"
+    selected_files = request.selected_files if request else None
 
-    print(f"[DEBUG] Import request - folder_path: {folder_path}, category: {category}")
+    print(f"[DEBUG] Import request - folder_path: {folder_path}, category: {category}, selected_files: {selected_files}")
 
     # Start import in background
     db = SessionLocal()
-    asyncio.create_task(run_document_import(db, folder_path, category))
+    asyncio.create_task(run_document_import(db, folder_path, category, selected_files))
 
     return {
         "status": "started",

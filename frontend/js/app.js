@@ -13,6 +13,7 @@ let importJustStarted = false;  // Flag to prevent premature progress hiding
 let importWaitCount = 0;        // Counter for waiting for import to start
 let currentBrowserPath = null;  // Current folder browser path
 let currentBrowserFiles = [];   // Files in current folder
+let selectedBrowserFiles = new Set();  // Selected files for import
 let settings = {
     theme: 'light',
     ai_tone: 'technical',
@@ -116,6 +117,9 @@ const elements = {
     browserDrives: document.getElementById('browser-drives'),
     browserContent: document.getElementById('browser-content'),
     browserFileCount: document.getElementById('browser-file-count'),
+    browserSelectedCount: document.getElementById('browser-selected-count'),
+    browserSelectAll: document.getElementById('browser-select-all'),
+    selectAllFiles: document.getElementById('select-all-files'),
 
     // Confirm Modal
     confirmModal: document.getElementById('confirm-modal'),
@@ -301,6 +305,7 @@ function setupEventListeners() {
     // Import Modal
     elements.importCancelBtn.addEventListener('click', () => elements.importModal.classList.add('hidden'));
     elements.importStartBtn.addEventListener('click', startDocumentImport);
+    elements.selectAllFiles.addEventListener('change', (e) => toggleSelectAllFiles(e.target.checked));
     elements.importCategorySelect.addEventListener('change', () => {
         // Clear new category input when selecting existing
         if (elements.importCategorySelect.value) {
@@ -1168,6 +1173,7 @@ async function showImportModal() {
     // Reset browser state
     currentBrowserPath = null;
     currentBrowserFiles = [];
+    selectedBrowserFiles = new Set();
 
     // Show the modal
     showModal(elements.importModal);
@@ -1217,15 +1223,24 @@ async function browseFolder(path) {
             ).join('');
         }
 
-        // Files
+        // Files with checkboxes
         if (data.files && data.files.length > 0) {
-            html += data.files.map(file =>
-                `<div class="browser-item file">${escapeHtml(file.name)}</div>`
-            ).join('');
+            html += data.files.map(file => {
+                const isImported = file.imported;
+                const isSelected = selectedBrowserFiles.has(file.path);
+                const importedClass = isImported ? ' imported' : '';
+                const importedLabel = isImported ? ' <span class="imported-label">(imported)</span>' : '';
+                return `<div class="browser-item file${importedClass}" data-path="${escapeHtml(file.path)}">
+                    <label class="file-checkbox-label">
+                        <input type="checkbox" class="file-checkbox" data-path="${escapeHtml(file.path)}" ${isSelected ? 'checked' : ''}>
+                        <span class="file-name">${escapeHtml(file.name)}${importedLabel}</span>
+                    </label>
+                </div>`;
+            }).join('');
         }
 
         if (!html) {
-            html = '<div class="browser-loading">No folders or .docx files found</div>';
+            html = '<div class="browser-loading">No folders or documents found</div>';
         }
 
         elements.browserContent.innerHTML = html;
@@ -1235,11 +1250,37 @@ async function browseFolder(path) {
             item.addEventListener('click', () => browseFolder(item.dataset.path));
         });
 
-        // Update file count
+        // Add change handlers to file checkboxes
+        elements.browserContent.querySelectorAll('.file-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', (e) => {
+                const filePath = e.target.dataset.path;
+                if (e.target.checked) {
+                    selectedBrowserFiles.add(filePath);
+                } else {
+                    selectedBrowserFiles.delete(filePath);
+                }
+                updateSelectedCount();
+            });
+        });
+
+        // Show/hide select all checkbox
         const fileCount = data.files ? data.files.length : 0;
+        if (fileCount > 0) {
+            elements.browserSelectAll.style.display = 'block';
+            // Update select all checkbox state
+            const notImportedFiles = data.files.filter(f => !f.imported);
+            const allSelected = notImportedFiles.length > 0 && notImportedFiles.every(f => selectedBrowserFiles.has(f.path));
+            elements.selectAllFiles.checked = allSelected;
+        } else {
+            elements.browserSelectAll.style.display = 'none';
+        }
+
+        // Update file count
         elements.browserFileCount.textContent = fileCount === 1
             ? '1 document found'
             : `${fileCount} documents found`;
+
+        updateSelectedCount();
 
         // Auto-suggest category from folder name
         if (data.current_path && !elements.importCategoryNew.value && !elements.importCategorySelect.value) {
@@ -1254,6 +1295,36 @@ async function browseFolder(path) {
     }
 }
 
+
+function updateSelectedCount() {
+    const count = selectedBrowserFiles.size;
+    if (count > 0) {
+        elements.browserSelectedCount.textContent = `(${count} selected)`;
+    } else {
+        elements.browserSelectedCount.textContent = '';
+    }
+}
+
+function toggleSelectAllFiles(checked) {
+    // Only select files that aren't already imported
+    currentBrowserFiles.forEach(file => {
+        if (!file.imported) {
+            if (checked) {
+                selectedBrowserFiles.add(file.path);
+            } else {
+                selectedBrowserFiles.delete(file.path);
+            }
+        }
+    });
+    // Update checkboxes in UI
+    elements.browserContent.querySelectorAll('.file-checkbox').forEach(checkbox => {
+        const file = currentBrowserFiles.find(f => f.path === checkbox.dataset.path);
+        if (file && !file.imported) {
+            checkbox.checked = checked;
+        }
+    });
+    updateSelectedCount();
+}
 
 function browserGoUp() {
     if (currentBrowserPath) {
@@ -1293,9 +1364,26 @@ function startDocumentImport() {
     }
 
     if (currentBrowserFiles.length === 0) {
-        showToast('No .docx files in selected folder', 'error');
+        showToast('No documents in selected folder', 'error');
         return;
     }
+
+    // Determine which files to import
+    const filesToImport = selectedBrowserFiles.size > 0
+        ? Array.from(selectedBrowserFiles)
+        : null; // null means import all from folder
+
+    // If no files selected, warn user
+    if (selectedBrowserFiles.size === 0) {
+        // Check if all files are already imported
+        const notImportedFiles = currentBrowserFiles.filter(f => !f.imported);
+        if (notImportedFiles.length === 0) {
+            showToast('All documents in this folder are already imported', 'warning');
+            return;
+        }
+    }
+
+    const importCount = filesToImport ? filesToImport.length : currentBrowserFiles.filter(f => !f.imported).length;
 
     // Close import modal, show scraper modal with progress FIRST
     elements.importModal.classList.add('hidden');
@@ -1303,7 +1391,7 @@ function startDocumentImport() {
 
     // Show progress UI with indeterminate animation
     elements.scraperProgress.classList.remove('hidden');
-    elements.progressText.textContent = `Importing ${currentBrowserFiles.length} document(s) as "${category}"...`;
+    elements.progressText.textContent = `Importing ${importCount} document(s) as "${category}"...`;
     elements.progressFill.style.width = '';
     elements.progressFill.classList.add('indeterminate');
     elements.startScrapeBtn.disabled = true;
@@ -1323,7 +1411,11 @@ function startDocumentImport() {
             fetch(`${API_BASE}/scraper/import-docs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ category, folder_path: folderPath })
+                body: JSON.stringify({
+                    category,
+                    folder_path: folderPath,
+                    selected_files: filesToImport
+                })
             }).then(response => {
                 if (response.ok) {
                     showToast(`Importing documents as "${category}"...`, 'success');

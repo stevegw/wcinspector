@@ -294,6 +294,63 @@ def get_community_page_urls(base_url: str, max_pages: int = 10) -> list:
     return urls
 
 
+def extract_pdf_content(file_path: str) -> Optional[dict]:
+    """
+    Extract text content from a PDF file.
+
+    Returns dict with title, content, and metadata.
+    """
+    print(f"[DEBUG] extract_pdf_content called for: {file_path}")
+    try:
+        import pymupdf  # PyMuPDF
+        print(f"[DEBUG] pymupdf imported successfully")
+    except ImportError as e1:
+        print(f"[DEBUG] pymupdf import failed: {e1}")
+        try:
+            import fitz as pymupdf  # Alternative import name
+            print(f"[DEBUG] fitz imported successfully")
+        except ImportError as e2:
+            print(f"[DEBUG] fitz import failed: {e2}")
+            print("PyMuPDF not installed. Run: pip install pymupdf")
+            scraper_state["errors"].append("PyMuPDF not installed")
+            return None
+
+    try:
+        path = Path(file_path)
+        doc = pymupdf.open(file_path)
+
+        # Get title from metadata or filename
+        title = path.stem.replace('_', ' ').replace('-', ' ')
+        if doc.metadata and doc.metadata.get('title'):
+            title = doc.metadata['title']
+
+        # Extract text from all pages
+        content_parts = []
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            if text.strip():
+                content_parts.append(text)
+
+        doc.close()
+        content = "\n\n".join(content_parts)
+
+        # Get section from parent folder name
+        section = path.parent.name if path.parent.name != "documents" else "General"
+
+        return {
+            "url": f"file://{path.as_posix()}",
+            "title": title,
+            "content": content,
+            "section": section,
+            "topic": "Document",
+            "filename": path.name
+        }
+    except Exception as e:
+        print(f"Error extracting PDF {file_path}: {e}")
+        return None
+
+
 def extract_docx_content(file_path: str) -> Optional[dict]:
     """
     Extract text content from a Word document (.docx).
@@ -355,46 +412,71 @@ def extract_docx_content(file_path: str) -> Optional[dict]:
         return None
 
 
-def find_docx_files(folder_path: str) -> List[str]:
-    """Find all .docx files in a folder and subfolders."""
-    docx_files = []
+def extract_document_content(file_path: str) -> Optional[dict]:
+    """
+    Extract content from a document file (.docx or .pdf).
+    """
+    path = Path(file_path)
+    ext = path.suffix.lower()
+
+    if ext == '.docx':
+        return extract_docx_content(file_path)
+    elif ext == '.pdf':
+        return extract_pdf_content(file_path)
+    else:
+        print(f"Unsupported file type: {ext}")
+        return None
+
+
+def find_document_files(folder_path: str) -> List[str]:
+    """Find all .docx and .pdf files in a folder and subfolders."""
+    doc_files = []
     folder = Path(folder_path)
 
-    print(f"[DEBUG] find_docx_files - looking in: {folder_path}")
+    print(f"[DEBUG] find_document_files - looking in: {folder_path}")
     print(f"[DEBUG] folder.exists(): {folder.exists()}")
-    scraper_state["debug_log"].append(f"find_docx_files: {folder_path}")
+    scraper_state["debug_log"].append(f"find_document_files: {folder_path}")
     scraper_state["debug_log"].append(f"folder.exists(): {folder.exists()}")
 
     if not folder.exists():
         print(f"[DEBUG] Folder does not exist: {folder_path}")
         scraper_state["debug_log"].append(f"ERROR: Folder does not exist")
-        return docx_files
+        return doc_files
 
     try:
+        # Find .docx files
         for file_path in folder.rglob("*.docx"):
             # Skip temporary files (start with ~$)
             if file_path.name.startswith("~$"):
                 continue
             print(f"[DEBUG] Found docx: {file_path}")
             scraper_state["debug_log"].append(f"Found: {file_path.name}")
-            docx_files.append(str(file_path))
-        print(f"[DEBUG] Total docx files found: {len(docx_files)}")
-        scraper_state["debug_log"].append(f"Total files found: {len(docx_files)}")
+            doc_files.append(str(file_path))
+
+        # Find .pdf files
+        for file_path in folder.rglob("*.pdf"):
+            print(f"[DEBUG] Found pdf: {file_path}")
+            scraper_state["debug_log"].append(f"Found: {file_path.name}")
+            doc_files.append(str(file_path))
+
+        print(f"[DEBUG] Total document files found: {len(doc_files)}")
+        scraper_state["debug_log"].append(f"Total files found: {len(doc_files)}")
     except Exception as e:
-        print(f"[ERROR] Error scanning for docx files: {e}")
+        print(f"[ERROR] Error scanning for document files: {e}")
         scraper_state["debug_log"].append(f"ERROR scanning: {e}")
 
-    return docx_files
+    return doc_files
 
 
-async def run_document_import(db_session, folder_path: str = None, category: str = "internal-docs"):
+async def run_document_import(db_session, folder_path: str = None, category: str = "internal-docs", selected_files: list = None):
     """
-    Import Word documents from a folder into the knowledge base.
+    Import documents (.docx and .pdf) from a folder into the knowledge base.
 
     Args:
         db_session: Database session
-        folder_path: Path to folder containing .docx files (default: ./documents)
+        folder_path: Path to folder containing documents (default: ./documents)
         category: Category to assign to imported documents
+        selected_files: Optional list of specific file paths to import (if None, imports all from folder)
     """
     global scraper_state
 
@@ -407,16 +489,24 @@ async def run_document_import(db_session, folder_path: str = None, category: str
     scraper_state["debug_log"] = []  # Reset debug log
     scraper_state["debug_log"].append(f"folder_path: {folder_path}")
     scraper_state["debug_log"].append(f"category: {category}")
+    scraper_state["debug_log"].append(f"selected_files: {selected_files}")
     scraper_state["debug_log"].append(f"folder exists: {os.path.exists(folder_path)}")
-    print(f"[DEBUG] run_document_import - folder_path: {folder_path}, category: {category}")
+    print(f"[DEBUG] run_document_import - folder_path: {folder_path}, category: {category}, selected_files: {selected_files}")
     print(f"[DEBUG] folder exists: {os.path.exists(folder_path)}")
 
-    if not os.path.exists(folder_path):
-        scraper_state["status_text"] = f"Folder does not exist: {folder_path}"
-        scraper_state["progress"] = 100
-        scraper_state["in_progress"] = False
-        print(f"[ERROR] Folder does not exist: {folder_path}")
-        return
+    # If specific files selected, use those; otherwise scan folder
+    if selected_files and len(selected_files) > 0:
+        doc_files = selected_files
+        print(f"[DEBUG] Using {len(doc_files)} selected files")
+    else:
+        if not os.path.exists(folder_path):
+            scraper_state["status_text"] = f"Folder does not exist: {folder_path}"
+            scraper_state["progress"] = 100
+            scraper_state["in_progress"] = False
+            print(f"[ERROR] Folder does not exist: {folder_path}")
+            return
+        # Find all document files (.docx and .pdf) in folder
+        doc_files = find_document_files(folder_path)
 
     scraper_state["in_progress"] = True
     scraper_state["progress"] = 0
@@ -427,22 +517,19 @@ async def run_document_import(db_session, folder_path: str = None, category: str
 
     start_time = datetime.utcnow()
 
-    # Find all .docx files
-    docx_files = find_docx_files(folder_path)
-
-    if not docx_files:
-        scraper_state["status_text"] = f"No .docx files found in {folder_path}"
+    if not doc_files:
+        scraper_state["status_text"] = f"No documents (.docx, .pdf) found in {folder_path}"
         scraper_state["progress"] = 100
         scraper_state["in_progress"] = False
         return
 
-    scraper_state["total_pages_estimate"] = len(docx_files)
-    scraper_state["status_text"] = f"Found {len(docx_files)} documents to import..."
+    scraper_state["total_pages_estimate"] = len(doc_files)
+    scraper_state["status_text"] = f"Found {len(doc_files)} documents to import..."
 
     docs_imported = 0
 
     try:
-        for i, file_path in enumerate(docx_files):
+        for i, file_path in enumerate(doc_files):
             # Check for cancellation
             if scraper_state.get("cancel_requested"):
                 scraper_state["status_text"] = "Cancelled by user"
@@ -453,7 +540,7 @@ async def run_document_import(db_session, folder_path: str = None, category: str
             scraper_state["current_url"] = file_path
             scraper_state["status_text"] = f"Importing: {Path(file_path).name}..."
 
-            doc_data = extract_docx_content(file_path)
+            doc_data = extract_document_content(file_path)
 
             if doc_data and doc_data.get("content"):
                 # Check if already exists
@@ -491,7 +578,7 @@ async def run_document_import(db_session, folder_path: str = None, category: str
                 scraper_state["errors"].append(f"Failed to extract: {Path(file_path).name}")
 
             # Update progress
-            progress = ((i + 1) / len(docx_files)) * 100
+            progress = ((i + 1) / len(doc_files)) * 100
             scraper_state["progress"] = min(progress, 99)
 
     except Exception as e:
