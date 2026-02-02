@@ -15,6 +15,9 @@
             <span class="subtitle">PTC Knowledge Base</span>
         </div>
         <div class="header-controls">
+            <button id="documents-btn" class="btn btn-small" aria-label="Browse Documents">
+                <span>📄 Documents</span>
+            </button>
             <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme">
                 <span class="icon">🌙</span>
             </button>
@@ -228,6 +231,28 @@
                 <ul class="sources-list" id="sources-list">
                     <!-- Source links will be inserted here -->
                 </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Documents Modal -->
+    <div class="modal hidden" id="documents-modal">
+        <div class="modal-content modal-wide">
+            <div class="modal-header">
+                <h2>Documents</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="documents-toolbar">
+                    <input type="text" id="docs-search" placeholder="Search documents..." />
+                    <select id="docs-category-filter">
+                        <option value="">All Categories</option>
+                    </select>
+                    <span id="docs-count" class="docs-count"></span>
+                </div>
+                <div class="documents-list" id="documents-list">
+                    <!-- Documents will be populated by JavaScript -->
+                </div>
             </div>
         </div>
     </div>

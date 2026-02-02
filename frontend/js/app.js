@@ -86,6 +86,14 @@ const elements = {
     sourcesModal: document.getElementById('sources-modal'),
     sourcesList: document.getElementById('sources-list'),
 
+    // Documents Modal
+    documentsBtn: document.getElementById('documents-btn'),
+    documentsModal: document.getElementById('documents-modal'),
+    documentsList: document.getElementById('documents-list'),
+    docsSearch: document.getElementById('docs-search'),
+    docsCategoryFilter: document.getElementById('docs-category-filter'),
+    docsCount: document.getElementById('docs-count'),
+
     // Scraper Modal
     scraperBtn: document.getElementById('scraper-btn'),
     scraperModal: document.getElementById('scraper-modal'),
@@ -293,6 +301,11 @@ function setupEventListeners() {
     elements.providerSelect.addEventListener('change', updateModelGroupVisibility);
     elements.resetSettingsBtn.addEventListener('click', resetSettings);
     elements.saveSettingsBtn.addEventListener('click', saveSettings);
+
+    // Documents Modal
+    elements.documentsBtn.addEventListener('click', openDocumentsModal);
+    elements.docsSearch.addEventListener('input', filterDocuments);
+    elements.docsCategoryFilter.addEventListener('change', filterDocuments);
 
     // Scraper
     elements.scraperBtn.addEventListener('click', () => showModal(elements.scraperModal));
@@ -884,11 +897,14 @@ function showSourcesModal() {
     } else {
         elements.sourcesList.innerHTML = currentSources.map(url => {
             if (url.startsWith('file://')) {
-                // Local file - show view button instead of link
+                // Local file - show view and summarize buttons
                 const filename = url.split('/').pop();
                 return `<li class="local-source">
                     <span class="source-label">📄 ${escapeHtml(filename)}</span>
-                    <button class="btn btn-small view-local-btn" data-url="${escapeHtml(url)}">View Content</button>
+                    <div class="source-actions">
+                        <button class="btn btn-small view-local-btn" data-url="${escapeHtml(url)}">View</button>
+                        <button class="btn btn-small btn-secondary summarize-btn" data-url="${escapeHtml(url)}">Summarize</button>
+                    </div>
                 </li>`;
             } else {
                 // Remote URL - show as link
@@ -899,6 +915,11 @@ function showSourcesModal() {
         // Add click handlers for local file view buttons
         elements.sourcesList.querySelectorAll('.view-local-btn').forEach(btn => {
             btn.addEventListener('click', () => viewLocalDocument(btn.dataset.url));
+        });
+
+        // Add click handlers for summarize buttons
+        elements.sourcesList.querySelectorAll('.summarize-btn').forEach(btn => {
+            btn.addEventListener('click', () => quickSummarize(btn.dataset.url, btn));
         });
     }
     showModal(elements.sourcesModal);
@@ -913,8 +934,7 @@ async function viewLocalDocument(url) {
         const content = data.content || 'No content available';
         const title = data.title || 'Document';
 
-        // Use a simple alert for now, or create a proper modal
-        showDocumentViewer(title, content);
+        showDocumentViewer(title, content, url);
     } catch (error) {
         console.error('Failed to load document:', error);
         showToast('Failed to load document content', 'error');
@@ -923,8 +943,9 @@ async function viewLocalDocument(url) {
 
 // Document viewer modal
 let documentViewerContent = ''; // Store original content for search
+let documentViewerUrl = null;   // Store URL for summarization
 
-function showDocumentViewer(title, content) {
+function showDocumentViewer(title, content, url = null) {
     // Check if viewer modal exists, if not create it
     let viewerModal = document.getElementById('document-viewer-modal');
     if (!viewerModal) {
@@ -938,13 +959,17 @@ function showDocumentViewer(title, content) {
                     <button class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <div class="viewer-search-bar">
-                        <input type="text" id="viewer-search-input" placeholder="Search in document..." />
-                        <span id="viewer-search-count"></span>
-                        <button class="btn btn-small" onclick="viewerSearchPrev()">↑</button>
-                        <button class="btn btn-small" onclick="viewerSearchNext()">↓</button>
-                        <button class="btn btn-small" onclick="viewerSearchClear()">Clear</button>
+                    <div class="viewer-toolbar">
+                        <div class="viewer-search-bar">
+                            <input type="text" id="viewer-search-input" placeholder="Search in document..." />
+                            <span id="viewer-search-count"></span>
+                            <button class="btn btn-small" onclick="viewerSearchPrev()">↑</button>
+                            <button class="btn btn-small" onclick="viewerSearchNext()">↓</button>
+                            <button class="btn btn-small" onclick="viewerSearchClear()">Clear</button>
+                        </div>
+                        <button id="viewer-summarize-btn" class="btn btn-small btn-primary" onclick="summarizeDocument()">Summarize</button>
                     </div>
+                    <div id="viewer-summary" class="viewer-summary hidden"></div>
                     <div id="viewer-content" class="document-viewer-content"></div>
                 </div>
             </div>
@@ -972,13 +997,148 @@ function showDocumentViewer(title, content) {
         });
     }
 
-    // Store content and populate
+    // Store content and URL, populate
     documentViewerContent = content;
+    documentViewerUrl = url;
     document.getElementById('viewer-title').textContent = title;
     document.getElementById('viewer-content').innerHTML = formatLessonContent(content);
     document.getElementById('viewer-search-input').value = '';
     document.getElementById('viewer-search-count').textContent = '';
+
+    // Reset summary section
+    const summaryEl = document.getElementById('viewer-summary');
+    if (summaryEl) {
+        summaryEl.classList.add('hidden');
+        summaryEl.innerHTML = '';
+    }
+
+    // Show/hide summarize button based on whether we have a URL
+    const summarizeBtn = document.getElementById('viewer-summarize-btn');
+    if (summarizeBtn) {
+        summarizeBtn.style.display = url ? 'inline-block' : 'none';
+        summarizeBtn.disabled = false;
+        summarizeBtn.textContent = 'Summarize';
+    }
+
     viewerModal.classList.remove('hidden');
+}
+
+// Summarize document using AI
+async function summarizeDocument() {
+    if (!documentViewerUrl) {
+        showToast('Cannot summarize: no document URL', 'error');
+        return;
+    }
+
+    const summarizeBtn = document.getElementById('viewer-summarize-btn');
+    const summaryEl = document.getElementById('viewer-summary');
+
+    // Show loading state
+    summarizeBtn.disabled = true;
+    summarizeBtn.textContent = 'Summarizing...';
+    summaryEl.classList.remove('hidden');
+    summaryEl.innerHTML = '<div class="summary-loading">Generating AI summary...</div>';
+
+    try {
+        const response = await apiRequest(`/pages/summarize-by-url?url=${encodeURIComponent(documentViewerUrl)}`, {
+            method: 'POST'
+        });
+
+        if (response.error) {
+            throw new Error(response.error);
+        }
+
+        // Display summary
+        summaryEl.innerHTML = `
+            <div class="summary-header">
+                <strong>AI Summary</strong>
+                <button class="btn btn-small" onclick="document.getElementById('viewer-summary').classList.add('hidden')">Hide</button>
+            </div>
+            <div class="summary-content">${formatLessonContent(response.summary)}</div>
+        `;
+        summarizeBtn.textContent = 'Summarize';
+        summarizeBtn.disabled = false;
+    } catch (error) {
+        console.error('Failed to summarize:', error);
+        summaryEl.innerHTML = `<div class="summary-error">Failed to generate summary: ${escapeHtml(error.message)}</div>`;
+        summarizeBtn.textContent = 'Retry';
+        summarizeBtn.disabled = false;
+    }
+}
+
+// Quick summarize - shows summary in a modal without loading full document
+async function quickSummarize(url, btn = null) {
+    // Show loading state on button if provided
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Loading...';
+    }
+
+    try {
+        const response = await apiRequest(`/pages/summarize-by-url?url=${encodeURIComponent(url)}`, {
+            method: 'POST'
+        });
+
+        if (response.error) {
+            throw new Error(response.error);
+        }
+
+        // Show summary in the document viewer
+        showDocumentViewer(
+            `Summary: ${response.title || 'Document'}`,
+            response.summary,
+            url
+        );
+
+        // Hide the original summary section since we're showing the summary as content
+        const summaryEl = document.getElementById('viewer-summary');
+        if (summaryEl) summaryEl.classList.add('hidden');
+
+    } catch (error) {
+        console.error('Failed to summarize:', error);
+        showToast('Failed to generate summary: ' + error.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+}
+
+// Quick summarize by page ID
+async function quickSummarizeById(pageId, btn = null) {
+    const originalText = btn ? btn.textContent : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Loading...';
+    }
+
+    try {
+        const response = await apiRequest(`/pages/${pageId}/summarize`, {
+            method: 'POST'
+        });
+
+        if (response.error) {
+            throw new Error(response.error);
+        }
+
+        // Show summary in the document viewer
+        showDocumentViewer(
+            `Summary: ${response.title || 'Document'}`,
+            response.summary,
+            null
+        );
+
+    } catch (error) {
+        console.error('Failed to summarize:', error);
+        showToast('Failed to generate summary: ' + error.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
 }
 
 // Search within document viewer
@@ -2251,10 +2411,16 @@ async function searchPages() {
         }
 
         elements.pageSearchResults.innerHTML = availablePages.map(page => `
-            <div class="search-result-item" data-id="${page.id}" data-title="${escapeHtml(page.title || 'Untitled')}">
-                <span class="search-result-title">${escapeHtml(page.title || 'Untitled')}</span>
-                <span class="search-result-category">${escapeHtml(page.category || '')}</span>
-                <button class="add-page-btn">+ Add</button>
+            <div class="search-result-item" data-id="${page.id}" data-title="${escapeHtml(page.title || 'Untitled')}" data-url="${escapeHtml(page.url || '')}">
+                <div class="search-result-info">
+                    <span class="search-result-title">${escapeHtml(page.title || 'Untitled')}</span>
+                    <span class="search-result-category">${escapeHtml(page.category || '')}</span>
+                </div>
+                <div class="search-result-actions">
+                    <button class="btn btn-small view-page-btn" title="View document">View</button>
+                    <button class="btn btn-small btn-secondary summarize-page-btn" title="AI Summary">Summarize</button>
+                    <button class="btn btn-small btn-primary add-page-btn">+ Add</button>
+                </div>
             </div>
         `).join('');
 
@@ -2266,6 +2432,26 @@ async function searchPages() {
                 const pageId = parseInt(item.dataset.id);
                 const title = item.dataset.title;
                 addPageToCourse(pageId, title);
+            });
+        });
+
+        // View page handlers
+        elements.pageSearchResults.querySelectorAll('.view-page-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = btn.closest('.search-result-item');
+                const url = item.dataset.url;
+                if (url) viewLocalDocument(url);
+            });
+        });
+
+        // Summarize page handlers
+        elements.pageSearchResults.querySelectorAll('.summarize-page-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const item = btn.closest('.search-result-item');
+                const pageId = parseInt(item.dataset.id);
+                quickSummarizeById(pageId, btn);
             });
         });
     } catch (error) {
@@ -3362,3 +3548,93 @@ function resumeCourse() {
 
 // Make showAddLessonsModal globally accessible
 window.showAddLessonsModal = showAddLessonsModal;
+
+// ==================== Documents Modal ====================
+
+let allDocuments = [];  // Cache all documents for filtering
+
+async function openDocumentsModal() {
+    showModal(elements.documentsModal);
+    elements.documentsList.innerHTML = '<p class="loading-state">Loading documents...</p>';
+
+    // Populate category filter
+    const categoryOptions = Object.entries(categories).map(([key, cat]) =>
+        `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`
+    ).join('');
+    elements.docsCategoryFilter.innerHTML = '<option value="">All Categories</option>' + categoryOptions;
+
+    try {
+        const data = await apiRequest('/pages/search?limit=500');
+        allDocuments = data.pages || [];
+        renderDocuments(allDocuments);
+    } catch (error) {
+        console.error('Failed to load documents:', error);
+        elements.documentsList.innerHTML = '<p class="empty-state">Failed to load documents</p>';
+    }
+}
+
+function filterDocuments() {
+    const searchTerm = elements.docsSearch.value.toLowerCase().trim();
+    const category = elements.docsCategoryFilter.value;
+
+    let filtered = allDocuments;
+
+    if (category) {
+        filtered = filtered.filter(doc => doc.category === category);
+    }
+
+    if (searchTerm) {
+        filtered = filtered.filter(doc =>
+            (doc.title && doc.title.toLowerCase().includes(searchTerm)) ||
+            (doc.section && doc.section.toLowerCase().includes(searchTerm))
+        );
+    }
+
+    renderDocuments(filtered);
+}
+
+function renderDocuments(documents) {
+    elements.docsCount.textContent = `${documents.length} document${documents.length !== 1 ? 's' : ''}`;
+
+    if (documents.length === 0) {
+        elements.documentsList.innerHTML = '<p class="empty-state">No documents found</p>';
+        return;
+    }
+
+    elements.documentsList.innerHTML = documents.map(doc => `
+        <div class="document-item" data-id="${doc.id}" data-url="${escapeHtml(doc.url || '')}">
+            <div class="document-info">
+                <span class="document-title">${escapeHtml(doc.title || 'Untitled')}</span>
+                <span class="document-meta">
+                    <span class="document-category">${escapeHtml(doc.category || 'Unknown')}</span>
+                    ${doc.section ? `<span class="document-section">${escapeHtml(doc.section)}</span>` : ''}
+                </span>
+            </div>
+            <div class="document-actions">
+                <button class="btn btn-small doc-view-btn">View</button>
+                <button class="btn btn-small btn-primary doc-summarize-btn">Summarize</button>
+            </div>
+        </div>
+    `).join('');
+
+    // Add event handlers
+    elements.documentsList.querySelectorAll('.doc-view-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const item = btn.closest('.document-item');
+            const url = item.dataset.url;
+            if (url) {
+                viewLocalDocument(url);
+            } else {
+                showToast('Cannot view: no URL available', 'error');
+            }
+        });
+    });
+
+    elements.documentsList.querySelectorAll('.doc-summarize-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const item = btn.closest('.document-item');
+            const pageId = parseInt(item.dataset.id);
+            quickSummarizeById(pageId, btn);
+        });
+    });
+}

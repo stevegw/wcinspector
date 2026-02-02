@@ -679,6 +679,87 @@ def get_vectorstore_stats() -> Dict:
         return {"count": 0, "status": f"error: {str(e)}", "categories": {}}
 
 
+async def summarize_document(
+    content: str,
+    title: str = "Document",
+    provider: str = None,
+    model: str = None,
+    groq_model: str = None
+) -> str:
+    """Generate a summary of a document using the configured LLM provider.
+
+    Args:
+        content: The document text to summarize
+        title: The document title for context
+        provider: LLM provider (groq or ollama)
+        model: Model name for Ollama
+        groq_model: Model name for Groq
+
+    Returns:
+        A summary string
+    """
+    use_provider = provider or LLM_PROVIDER or "groq"
+
+    # Truncate content if too long (keep first ~8000 chars for context window)
+    max_content = 8000
+    truncated = content[:max_content] if len(content) > max_content else content
+    was_truncated = len(content) > max_content
+
+    system_prompt = """You are a technical documentation summarizer. Create clear, concise summaries that capture:
+- The main purpose and topic of the document
+- Key concepts and procedures covered
+- Important details users should know
+
+Keep summaries informative but brief (2-4 paragraphs). Use bullet points for lists of features or steps."""
+
+    user_prompt = f"""Please summarize this document:
+
+Title: {title}
+
+Content:
+{truncated}
+
+{"(Note: Document was truncated due to length)" if was_truncated else ""}
+
+Provide a helpful summary that gives readers a quick understanding of what this document covers."""
+
+    try:
+        if use_provider == "groq" and groq_client:
+            use_model = groq_model or LLM_MODEL or DEFAULT_MODELS["groq"]
+            response = groq_client.chat.completions.create(
+                model=use_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.5,
+                max_tokens=1000
+            )
+            return response.choices[0].message.content
+        else:
+            # Use Ollama
+            use_model = model or LLM_MODEL or DEFAULT_MODELS["ollama"]
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/chat",
+                    json={
+                        "model": use_model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "stream": False,
+                        "options": {"temperature": 0.5}
+                    }
+                )
+                if response.status_code == 200:
+                    return response.json()["message"]["content"]
+                else:
+                    return f"Error generating summary: Ollama returned {response.status_code}"
+    except Exception as e:
+        return f"Error generating summary: {str(e)}"
+
+
 async def generate_course(
     topic: str,
     category: str = None,

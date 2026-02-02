@@ -1747,6 +1747,76 @@ async def get_page_by_url(url: str):
         db.close()
 
 
+@app.post("/api/pages/{page_id}/summarize")
+async def summarize_page(page_id: int):
+    """Generate an AI summary of a document"""
+    from database import SessionLocal, ScrapedPage
+    from rag import summarize_document
+
+    db = SessionLocal()
+    try:
+        page = db.query(ScrapedPage).filter(ScrapedPage.id == page_id).first()
+        if not page:
+            return JSONResponse(status_code=404, content={"error": "Page not found"})
+
+        if not page.content:
+            return {"error": "Page has no content to summarize"}
+
+        summary = await summarize_document(
+            content=page.content,
+            title=page.title or "Document"
+        )
+
+        return {
+            "page_id": page_id,
+            "title": page.title,
+            "summary": summary
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/pages/summarize-by-url")
+async def summarize_page_by_url(url: str):
+    """Generate an AI summary of a document by URL"""
+    from database import SessionLocal, ScrapedPage
+    from rag import summarize_document
+    from urllib.parse import unquote
+
+    url = unquote(url)
+
+    db = SessionLocal()
+    try:
+        page = db.query(ScrapedPage).filter(ScrapedPage.url == url).first()
+
+        # Try alternate URL formats for file:// URLs
+        if not page and url.startswith('file://'):
+            if url.startswith('file:///'):
+                alt_url = 'file://' + url[8:]
+            else:
+                alt_url = 'file:///' + url[7:]
+            page = db.query(ScrapedPage).filter(ScrapedPage.url == alt_url).first()
+
+        if not page:
+            return JSONResponse(status_code=404, content={"error": "Page not found"})
+
+        if not page.content:
+            return {"error": "Page has no content to summarize"}
+
+        summary = await summarize_document(
+            content=page.content,
+            title=page.title or "Document"
+        )
+
+        return {
+            "page_id": page.id,
+            "title": page.title,
+            "summary": summary
+        }
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000)
