@@ -917,6 +917,8 @@ async function viewLocalDocument(url) {
 }
 
 // Document viewer modal
+let documentViewerContent = ''; // Store original content for search
+
 function showDocumentViewer(title, content) {
     // Check if viewer modal exists, if not create it
     let viewerModal = document.getElementById('document-viewer-modal');
@@ -931,6 +933,13 @@ function showDocumentViewer(title, content) {
                     <button class="modal-close" aria-label="Close">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div class="viewer-search-bar">
+                        <input type="text" id="viewer-search-input" placeholder="Search in document..." />
+                        <span id="viewer-search-count"></span>
+                        <button class="btn btn-small" onclick="viewerSearchPrev()">↑</button>
+                        <button class="btn btn-small" onclick="viewerSearchNext()">↓</button>
+                        <button class="btn btn-small" onclick="viewerSearchClear()">Clear</button>
+                    </div>
                     <div id="viewer-content" class="document-viewer-content"></div>
                 </div>
             </div>
@@ -944,12 +953,97 @@ function showDocumentViewer(title, content) {
         viewerModal.addEventListener('click', (e) => {
             if (e.target === viewerModal) viewerModal.classList.add('hidden');
         });
+
+        // Add search handler
+        document.getElementById('viewer-search-input').addEventListener('input', (e) => {
+            viewerSearch(e.target.value);
+        });
+        document.getElementById('viewer-search-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) viewerSearchPrev();
+                else viewerSearchNext();
+            }
+        });
     }
 
-    // Populate and show
+    // Store content and populate
+    documentViewerContent = content;
     document.getElementById('viewer-title').textContent = title;
-    document.getElementById('viewer-content').innerHTML = `<pre>${escapeHtml(content)}</pre>`;
+    document.getElementById('viewer-content').innerHTML = formatLessonContent(content);
+    document.getElementById('viewer-search-input').value = '';
+    document.getElementById('viewer-search-count').textContent = '';
     viewerModal.classList.remove('hidden');
+}
+
+// Search within document viewer
+let viewerSearchMatches = [];
+let viewerSearchIndex = -1;
+
+function viewerSearch(query) {
+    const contentEl = document.getElementById('viewer-content');
+    const countEl = document.getElementById('viewer-search-count');
+
+    if (!query || query.length < 2) {
+        contentEl.innerHTML = formatLessonContent(documentViewerContent);
+        countEl.textContent = '';
+        viewerSearchMatches = [];
+        viewerSearchIndex = -1;
+        return;
+    }
+
+    // Format content then highlight matches
+    let html = formatLessonContent(documentViewerContent);
+    const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+    let matchCount = 0;
+
+    html = html.replace(regex, (match) => {
+        matchCount++;
+        return `<mark class="search-highlight" data-match="${matchCount}">${match}</mark>`;
+    });
+
+    contentEl.innerHTML = html;
+    viewerSearchMatches = contentEl.querySelectorAll('.search-highlight');
+    viewerSearchIndex = viewerSearchMatches.length > 0 ? 0 : -1;
+
+    countEl.textContent = matchCount > 0 ? `${matchCount} found` : 'No matches';
+
+    if (viewerSearchIndex >= 0) {
+        highlightCurrentMatch();
+    }
+}
+
+function viewerSearchNext() {
+    if (viewerSearchMatches.length === 0) return;
+    viewerSearchIndex = (viewerSearchIndex + 1) % viewerSearchMatches.length;
+    highlightCurrentMatch();
+}
+
+function viewerSearchPrev() {
+    if (viewerSearchMatches.length === 0) return;
+    viewerSearchIndex = (viewerSearchIndex - 1 + viewerSearchMatches.length) % viewerSearchMatches.length;
+    highlightCurrentMatch();
+}
+
+function viewerSearchClear() {
+    document.getElementById('viewer-search-input').value = '';
+    document.getElementById('viewer-content').innerHTML = formatLessonContent(documentViewerContent);
+    document.getElementById('viewer-search-count').textContent = '';
+    viewerSearchMatches = [];
+    viewerSearchIndex = -1;
+}
+
+function highlightCurrentMatch() {
+    viewerSearchMatches.forEach((el, i) => {
+        el.classList.toggle('current', i === viewerSearchIndex);
+    });
+    if (viewerSearchMatches[viewerSearchIndex]) {
+        viewerSearchMatches[viewerSearchIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function escapeRegex(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // Scraper Functions
@@ -2398,6 +2492,16 @@ let quizState = {
     sourceUrls: []  // Source URLs for the quiz
 };
 
+// Reset quiz state completely
+function resetQuizState() {
+    quizState = {
+        courseId: null,
+        answers: {},
+        total: 0,
+        sourceUrls: []
+    };
+}
+
 // Initialize quiz state for a course, loading saved answers from backend
 function initQuizState(courseId, totalQuestions, courseItems) {
     if (quizState.courseId !== courseId) {
@@ -2459,16 +2563,81 @@ function updateQuizScoreBar() {
     let sourceLink = '';
     if (quizState.sourceUrls && quizState.sourceUrls.length > 0) {
         const firstUrl = quizState.sourceUrls[0];
-        sourceLink = `<a href="${escapeHtml(firstUrl)}" target="_blank" class="btn btn-small btn-secondary">View Original</a>`;
+        if (firstUrl.startsWith('file://')) {
+            // Local file - use viewLocalDocument
+            sourceLink = `<button class="btn btn-small btn-secondary" onclick="viewLocalDocument('${escapeHtml(firstUrl)}')">View Original</button>`;
+        } else {
+            sourceLink = `<a href="${escapeHtml(firstUrl)}" target="_blank" class="btn btn-small btn-secondary">View Original</a>`;
+        }
     }
 
     scoreBar.innerHTML = `
         <div id="quiz-score-display">
             Score: <strong>${correct}/${answered}</strong> (${percentage}%)
         </div>
-        ${sourceLink}
+        <div class="quiz-score-actions">
+            <button class="btn btn-small btn-secondary" onclick="restartQuiz()">Restart Quiz</button>
+            ${sourceLink}
+        </div>
     `;
     scoreBar.style.display = 'flex';
+}
+
+// Restart quiz with new random questions
+async function restartQuiz() {
+    if (!currentCourse) return;
+
+    const confirmed = confirm('Generate new random questions for this quiz? Your current progress will be lost.');
+    if (!confirmed) return;
+
+    // Reset quiz state immediately
+    resetQuizState();
+
+    // Get the course topic from title (remove "Quiz: " prefix if present)
+    let topic = currentCourse.title;
+    if (topic.startsWith('Quiz:')) {
+        topic = topic.substring(5).trim();
+    }
+
+    // Save the number of questions before deleting
+    const numQuestions = currentCourse.items ? currentCourse.items.length : 5;
+
+    // Show loading state
+    const scoreBar = document.getElementById('quiz-score-bar');
+    if (scoreBar) {
+        scoreBar.innerHTML = '<div class="quiz-score-display">Generating new questions...</div>';
+    }
+
+    try {
+        // Delete the old course
+        await apiRequest(`/courses/${currentCourse.id}`, { method: 'DELETE' });
+
+        // Generate new quiz with same topic and category
+        const response = await apiRequest('/courses/generate-questions', {
+            method: 'POST',
+            body: JSON.stringify({
+                topic: topic,
+                category: currentCourse.category || null,
+                num_questions: numQuestions
+            })
+        });
+
+        if (response.success && response.course_id) {
+            // Load and open the new course
+            await loadCourses();
+            await openCourse(response.course_id);
+            showToast('New quiz generated!', 'success');
+        } else {
+            throw new Error(response.error || 'Failed to generate quiz');
+        }
+    } catch (error) {
+        console.error('Failed to restart quiz:', error);
+        showToast('Failed to generate new quiz: ' + error.message, 'error');
+        // Reload the current course to restore state
+        if (currentCourse) {
+            await openCourse(currentCourse.id);
+        }
+    }
 }
 
 // Format a single quiz question with state

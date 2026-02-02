@@ -873,6 +873,45 @@ a:hover { color: var(--accent-hover); }
     margin: 0;
 }
 
+/* Document viewer search */
+.viewer-search-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+    padding: var(--space-sm);
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-md);
+}
+
+.viewer-search-bar input {
+    flex: 1;
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+#viewer-search-count {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    min-width: 70px;
+}
+
+.search-highlight {
+    background: yellow;
+    color: black;
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+.search-highlight.current {
+    background: orange;
+    outline: 2px solid var(--accent);
+}
+
 /* Local source styling in sources list */
 .local-source {
     display: flex;
@@ -2305,6 +2344,12 @@ select:focus {
 #quiz-score-display strong {
     color: var(--accent);
     font-size: 1.2rem;
+}
+
+.quiz-score-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
 }
 
 /* Quiz question card */
