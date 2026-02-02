@@ -2676,60 +2676,63 @@ function updateQuizScoreBar() {
 }
 
 // Restart quiz with new random questions
-async function restartQuiz() {
+function restartQuiz() {
     if (!currentCourse) return;
 
-    const confirmed = confirm('Generate new random questions for this quiz? Your current progress will be lost.');
-    if (!confirmed) return;
+    showConfirm(
+        'Restart Quiz',
+        'Generate new random questions? Your current progress will be lost.',
+        async () => {
+            // Reset quiz state immediately
+            resetQuizState();
 
-    // Reset quiz state immediately
-    resetQuizState();
+            // Get the course topic from title (remove "Quiz: " prefix if present)
+            let topic = currentCourse.title;
+            if (topic.startsWith('Quiz:')) {
+                topic = topic.substring(5).trim();
+            }
 
-    // Get the course topic from title (remove "Quiz: " prefix if present)
-    let topic = currentCourse.title;
-    if (topic.startsWith('Quiz:')) {
-        topic = topic.substring(5).trim();
-    }
+            // Save the number of questions before deleting
+            const numQuestions = currentCourse.items ? currentCourse.items.length : 5;
 
-    // Save the number of questions before deleting
-    const numQuestions = currentCourse.items ? currentCourse.items.length : 5;
+            // Show loading state
+            const scoreBar = document.getElementById('quiz-score-bar');
+            if (scoreBar) {
+                scoreBar.innerHTML = '<div class="quiz-score-display">Generating new questions...</div>';
+            }
 
-    // Show loading state
-    const scoreBar = document.getElementById('quiz-score-bar');
-    if (scoreBar) {
-        scoreBar.innerHTML = '<div class="quiz-score-display">Generating new questions...</div>';
-    }
+            try {
+                // Delete the old course
+                await apiRequest(`/courses/${currentCourse.id}`, { method: 'DELETE' });
 
-    try {
-        // Delete the old course
-        await apiRequest(`/courses/${currentCourse.id}`, { method: 'DELETE' });
+                // Generate new quiz with same topic and category
+                const response = await apiRequest('/courses/generate-questions', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        topic: topic,
+                        category: currentCourse.category || null,
+                        num_questions: numQuestions
+                    })
+                });
 
-        // Generate new quiz with same topic and category
-        const response = await apiRequest('/courses/generate-questions', {
-            method: 'POST',
-            body: JSON.stringify({
-                topic: topic,
-                category: currentCourse.category || null,
-                num_questions: numQuestions
-            })
-        });
-
-        if (response.success && response.course_id) {
-            // Load and open the new course
-            await loadCourses();
-            await openCourse(response.course_id);
-            showToast('New quiz generated!', 'success');
-        } else {
-            throw new Error(response.error || 'Failed to generate quiz');
+                if (response.success && response.course_id) {
+                    // Load and open the new course
+                    await loadCourses();
+                    await openCourse(response.course_id);
+                    showToast('New quiz generated!', 'success');
+                } else {
+                    throw new Error(response.error || 'Failed to generate quiz');
+                }
+            } catch (error) {
+                console.error('Failed to restart quiz:', error);
+                showToast('Failed to generate new quiz: ' + error.message, 'error');
+                // Reload the current course to restore state
+                if (currentCourse) {
+                    await openCourse(currentCourse.id);
+                }
+            }
         }
-    } catch (error) {
-        console.error('Failed to restart quiz:', error);
-        showToast('Failed to generate new quiz: ' + error.message, 'error');
-        // Reload the current course to restore state
-        if (currentCourse) {
-            await openCourse(currentCourse.id);
-        }
-    }
+    );
 }
 
 // Format a single quiz question with state
