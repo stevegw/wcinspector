@@ -203,6 +203,33 @@ You: I'll create that feature. Let me add it to the backlog...
 [calls feature_create with appropriate parameters]
 You: Done! I've added "S3 Sync Integration" to your backlog. It's now visible on the kanban board.
 
+## Starting and Stopping the Server
+
+**IMPORTANT: Always use the provided scripts to start/stop the server. Do NOT manually run uvicorn or use different ports/hosts.**
+
+### To Start the Server
+```bash
+# From the project root directory
+./start.bat
+```
+- Runs on **http://localhost:8000** by default
+- Automatically creates venv and installs dependencies if needed
+- Automatically kills any existing process on port 8000
+
+### To Stop the Server
+```bash
+# From the project root directory
+./stop.bat
+```
+
+### Custom Port (optional)
+```bash
+./start.bat 8001   # Start on port 8001
+./stop.bat 8001    # Stop process on port 8001
+```
+
+**Never start the server manually with uvicorn commands** - always use these scripts to ensure consistent behavior.
+
 ## Guidelines
 
 1. Be concise and helpful
@@ -211,3 +238,4 @@ You: Done! I've added "S3 Sync Integration" to your backlog. It's now visible on
 4. Search the codebase to find relevant information before answering
 5. When creating features, confirm what was created
 6. If you're unsure about details, ask for clarification
+7. **Always use start.bat/stop.bat to manage the server**
