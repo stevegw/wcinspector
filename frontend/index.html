@@ -15,8 +15,8 @@
             <span class="subtitle">PTC Knowledge Base</span>
         </div>
         <div class="header-controls">
-            <button id="documents-btn" class="btn btn-small" aria-label="Browse Documents">
-                <span>📄 Documents</span>
+            <button id="documents-btn" class="btn btn-small btn-secondary" aria-label="Browse Documents">
+                📄 Documents
             </button>
             <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme">
                 <span class="icon">🌙</span>
@@ -244,6 +244,11 @@
             </div>
             <div class="modal-body">
                 <div class="documents-toolbar">
+                    <select id="docs-type-filter">
+                        <option value="imported">Imported Documents</option>
+                        <option value="web">Web Pages</option>
+                        <option value="all">All</option>
+                    </select>
                     <input type="text" id="docs-search" placeholder="Search documents..." />
                     <select id="docs-category-filter">
                         <option value="">All Categories</option>

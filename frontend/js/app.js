@@ -91,6 +91,7 @@ const elements = {
     documentsModal: document.getElementById('documents-modal'),
     documentsList: document.getElementById('documents-list'),
     docsSearch: document.getElementById('docs-search'),
+    docsTypeFilter: document.getElementById('docs-type-filter'),
     docsCategoryFilter: document.getElementById('docs-category-filter'),
     docsCount: document.getElementById('docs-count'),
 
@@ -305,6 +306,7 @@ function setupEventListeners() {
     // Documents Modal
     elements.documentsBtn.addEventListener('click', openDocumentsModal);
     elements.docsSearch.addEventListener('input', filterDocuments);
+    elements.docsTypeFilter.addEventListener('change', loadDocuments);
     elements.docsCategoryFilter.addEventListener('change', filterDocuments);
 
     // Scraper
@@ -3555,7 +3557,6 @@ let allDocuments = [];  // Cache all documents for filtering
 
 async function openDocumentsModal() {
     showModal(elements.documentsModal);
-    elements.documentsList.innerHTML = '<p class="loading-state">Loading documents...</p>';
 
     // Populate category filter
     const categoryOptions = Object.entries(categories).map(([key, cat]) =>
@@ -3563,10 +3564,30 @@ async function openDocumentsModal() {
     ).join('');
     elements.docsCategoryFilter.innerHTML = '<option value="">All Categories</option>' + categoryOptions;
 
+    // Reset filters
+    elements.docsTypeFilter.value = 'imported';
+    elements.docsSearch.value = '';
+    elements.docsCategoryFilter.value = '';
+
+    await loadDocuments();
+}
+
+async function loadDocuments() {
+    elements.documentsList.innerHTML = '<p class="loading-state">Loading documents...</p>';
+
+    const docType = elements.docsTypeFilter.value;
+
     try {
-        const data = await apiRequest('/pages/search?limit=500');
+        let url = '/pages/search?limit=500';
+        if (docType === 'imported') {
+            url += '&local_only=true';
+        } else if (docType === 'web') {
+            url += '&web_only=true';
+        }
+
+        const data = await apiRequest(url);
         allDocuments = data.pages || [];
-        renderDocuments(allDocuments);
+        filterDocuments();
     } catch (error) {
         console.error('Failed to load documents:', error);
         elements.documentsList.innerHTML = '<p class="empty-state">Failed to load documents</p>';

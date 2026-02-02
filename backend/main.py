@@ -1671,13 +1671,19 @@ async def set_resume_position(course_id: int, item_id: int):
 
 
 @app.get("/api/pages/search")
-async def search_pages(q: str = "", category: str = None, limit: int = 200):
+async def search_pages(q: str = "", category: str = None, limit: int = 200, local_only: bool = False, web_only: bool = False):
     """Search pages to add to a course"""
     from database import SessionLocal, ScrapedPage
 
     db = SessionLocal()
     try:
         query = db.query(ScrapedPage)
+
+        # Filter by document type (local imported vs web scraped)
+        if local_only:
+            query = query.filter(ScrapedPage.url.like("file://%"))
+        elif web_only:
+            query = query.filter(~ScrapedPage.url.like("file://%"))
 
         if q:
             search_term = f"%{q}%"
@@ -1698,6 +1704,7 @@ async def search_pages(q: str = "", category: str = None, limit: int = 200):
                     "title": page.title or "Untitled",
                     "url": page.url,
                     "category": page.category,
+                    "section": page.section,
                     "topic": page.topic
                 }
                 for page in pages
