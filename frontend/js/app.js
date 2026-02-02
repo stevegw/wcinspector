@@ -31,6 +31,17 @@ let courseItems = [];  // Items being edited in course builder
 let editingCourseId = null;  // Course ID being edited (null for new)
 let notesTimeout = null;  // Debounce timer for auto-save notes
 
+// Text-to-speech state
+let speechSynthesis = window.speechSynthesis;
+let currentUtterance = null;
+let isSpeaking = false;
+let availableVoices = [];
+let voiceSettings = {
+    voiceName: '',
+    rate: 1.0,
+    pitch: 1.0
+};
+
 // DOM Elements
 const elements = {
     // Question Form
@@ -57,6 +68,14 @@ const elements = {
     questionTextDisplay: document.getElementById('question-text-display'),
 
     // Answer Actions
+    listenBtn: document.getElementById('listen-btn'),
+    voiceSettingsBtn: document.getElementById('voice-settings-btn'),
+    voiceSettingsPopup: document.getElementById('voice-settings-popup'),
+    voiceSelect: document.getElementById('voice-select'),
+    speechRate: document.getElementById('speech-rate'),
+    speechRateValue: document.getElementById('speech-rate-value'),
+    speechPitch: document.getElementById('speech-pitch'),
+    speechPitchValue: document.getElementById('speech-pitch-value'),
     copyBtn: document.getElementById('copy-btn'),
     rerunBtn: document.getElementById('rerun-btn'),
     moreBtn: document.getElementById('more-btn'),
@@ -278,6 +297,22 @@ function setupEventListeners() {
     });
 
     // Answer Actions
+    elements.listenBtn.addEventListener('click', toggleSpeech);
+    elements.voiceSettingsBtn.addEventListener('click', toggleVoiceSettings);
+    elements.voiceSelect.addEventListener('change', handleVoiceChange);
+    elements.speechRate.addEventListener('input', handleRateChange);
+    elements.speechPitch.addEventListener('input', handlePitchChange);
+
+    // Close voice settings when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.listen-controls')) {
+            elements.voiceSettingsPopup.classList.add('hidden');
+        }
+    });
+
+    // Initialize voices
+    initVoices();
+
     elements.copyBtn.addEventListener('click', copyAnswer);
     elements.rerunBtn.addEventListener('click', rerunQuery);
     elements.moreBtn.addEventListener('click', showSourcesModal);
@@ -702,6 +737,9 @@ function showLoading() {
 }
 
 function displayAnswer(data, questionText = null) {
+    // Stop any ongoing speech when showing new answer
+    stopSpeech();
+
     elements.loadingState.classList.add('hidden');
     elements.answerDisplay.classList.remove('hidden');
     elements.errorState.classList.add('hidden');
@@ -824,6 +862,290 @@ async function copyAnswer() {
         showToast('Answer copied to clipboard', 'success');
     } catch (error) {
         showToast('Failed to copy answer', 'error');
+    }
+}
+
+// Text-to-Speech Functions
+function initVoices() {
+    // Load saved voice settings
+    const saved = localStorage.getItem('voiceSettings');
+    if (saved) {
+        try {
+            voiceSettings = JSON.parse(saved);
+            elements.speechRate.value = voiceSettings.rate;
+            elements.speechRateValue.textContent = voiceSettings.rate + 'x';
+            elements.speechPitch.value = voiceSettings.pitch;
+            elements.speechPitchValue.textContent = voiceSettings.pitch;
+        } catch (e) {
+            console.error('Failed to load voice settings:', e);
+        }
+    }
+
+    // Voices may load asynchronously
+    if (speechSynthesis) {
+        populateVoices();
+        speechSynthesis.onvoiceschanged = populateVoices;
+    }
+}
+
+function populateVoices() {
+    availableVoices = speechSynthesis.getVoices();
+
+    // Sort voices: English first, then by name
+    availableVoices.sort((a, b) => {
+        const aEn = a.lang.startsWith('en');
+        const bEn = b.lang.startsWith('en');
+        if (aEn && !bEn) return -1;
+        if (!aEn && bEn) return 1;
+        return a.name.localeCompare(b.name);
+    });
+
+    // Populate dropdown
+    elements.voiceSelect.innerHTML = '<option value="">Default</option>';
+    availableVoices.forEach((voice, index) => {
+        const option = document.createElement('option');
+        option.value = voice.name;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        if (voice.name === voiceSettings.voiceName) {
+            option.selected = true;
+        }
+        elements.voiceSelect.appendChild(option);
+    });
+}
+
+function toggleVoiceSettings(e) {
+    e.stopPropagation();
+    elements.voiceSettingsPopup.classList.toggle('hidden');
+}
+
+function handleVoiceChange() {
+    voiceSettings.voiceName = elements.voiceSelect.value;
+    saveVoiceSettings();
+}
+
+function handleRateChange() {
+    voiceSettings.rate = parseFloat(elements.speechRate.value);
+    elements.speechRateValue.textContent = voiceSettings.rate.toFixed(1) + 'x';
+    saveVoiceSettings();
+}
+
+function handlePitchChange() {
+    voiceSettings.pitch = parseFloat(elements.speechPitch.value);
+    elements.speechPitchValue.textContent = voiceSettings.pitch.toFixed(1);
+    saveVoiceSettings();
+}
+
+function saveVoiceSettings() {
+    localStorage.setItem('voiceSettings', JSON.stringify(voiceSettings));
+}
+
+function toggleSpeech() {
+    if (!speechSynthesis) {
+        showToast('Text-to-speech not supported in this browser', 'error');
+        return;
+    }
+
+    if (isSpeaking) {
+        stopSpeech();
+    } else {
+        startSpeech();
+    }
+}
+
+function startSpeech() {
+    const text = elements.answerText.textContent;
+    if (!text || text.trim() === '') {
+        showToast('No answer to read', 'warning');
+        return;
+    }
+
+    // Cancel any ongoing speech
+    speechSynthesis.cancel();
+
+    currentUtterance = new SpeechSynthesisUtterance(text);
+
+    // Apply voice settings
+    currentUtterance.rate = voiceSettings.rate;
+    currentUtterance.pitch = voiceSettings.pitch;
+    currentUtterance.volume = 1.0;
+
+    // Use selected voice or find a good default
+    if (voiceSettings.voiceName) {
+        const selectedVoice = availableVoices.find(v => v.name === voiceSettings.voiceName);
+        if (selectedVoice) {
+            currentUtterance.voice = selectedVoice;
+        }
+    } else {
+        // Default: prefer English voice
+        const englishVoice = availableVoices.find(v => v.lang.startsWith('en') && v.localService) ||
+                             availableVoices.find(v => v.lang.startsWith('en')) ||
+                             availableVoices[0];
+        if (englishVoice) {
+            currentUtterance.voice = englishVoice;
+        }
+    }
+
+    // Event handlers
+    currentUtterance.onstart = () => {
+        isSpeaking = true;
+        updateListenButton();
+    };
+
+    currentUtterance.onend = () => {
+        isSpeaking = false;
+        updateListenButton();
+    };
+
+    currentUtterance.onerror = (event) => {
+        console.error('Speech error:', event.error);
+        isSpeaking = false;
+        updateListenButton();
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+            showToast('Speech error: ' + event.error, 'error');
+        }
+    };
+
+    speechSynthesis.speak(currentUtterance);
+}
+
+function stopSpeech() {
+    if (speechSynthesis) {
+        speechSynthesis.cancel();
+    }
+    isSpeaking = false;
+    updateListenButton();
+}
+
+function updateListenButton() {
+    if (!elements.listenBtn) return;
+
+    const icon = elements.listenBtn.querySelector('.icon');
+    if (isSpeaking) {
+        icon.textContent = '⏹️';
+        elements.listenBtn.title = 'Stop listening';
+        elements.listenBtn.classList.add('speaking');
+    } else {
+        icon.textContent = '🔊';
+        elements.listenBtn.title = 'Listen to answer';
+        elements.listenBtn.classList.remove('speaking');
+    }
+}
+
+// Generic speech function for any element
+function speakText(text, button = null) {
+    if (!speechSynthesis) {
+        showToast('Text-to-speech not supported in this browser', 'error');
+        return;
+    }
+
+    if (!text || text.trim() === '') {
+        showToast('No text to read', 'warning');
+        return;
+    }
+
+    // Cancel any ongoing speech
+    speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+
+    // Apply voice settings
+    utterance.rate = voiceSettings.rate;
+    utterance.pitch = voiceSettings.pitch;
+    utterance.volume = 1.0;
+
+    // Use selected voice or find a good default
+    if (voiceSettings.voiceName) {
+        const selectedVoice = availableVoices.find(v => v.name === voiceSettings.voiceName);
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+        }
+    } else {
+        const englishVoice = availableVoices.find(v => v.lang.startsWith('en') && v.localService) ||
+                             availableVoices.find(v => v.lang.startsWith('en')) ||
+                             availableVoices[0];
+        if (englishVoice) {
+            utterance.voice = englishVoice;
+        }
+    }
+
+    // Event handlers
+    utterance.onstart = () => {
+        isSpeaking = true;
+        updateListenButton();
+        if (button) {
+            button.textContent = '⏹️ Stop';
+            button.classList.add('speaking');
+        }
+    };
+
+    utterance.onend = () => {
+        isSpeaking = false;
+        updateListenButton();
+        if (button) {
+            button.textContent = '🔊 Listen';
+            button.classList.remove('speaking');
+        }
+    };
+
+    utterance.onerror = (event) => {
+        console.error('Speech error:', event.error);
+        isSpeaking = false;
+        updateListenButton();
+        if (button) {
+            button.textContent = '🔊 Listen';
+            button.classList.remove('speaking');
+        }
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+            showToast('Speech error: ' + event.error, 'error');
+        }
+    };
+
+    currentUtterance = utterance;
+    speechSynthesis.speak(utterance);
+}
+
+// Toggle speech for document viewer content
+function toggleViewerSpeech() {
+    const btn = document.getElementById('viewer-listen-btn');
+
+    if (isSpeaking) {
+        stopSpeech();
+        if (btn) {
+            btn.textContent = '🔊 Listen';
+            btn.classList.remove('speaking');
+        }
+    } else {
+        const contentEl = document.getElementById('viewer-content');
+        if (contentEl) {
+            speakText(contentEl.textContent, btn);
+        }
+    }
+}
+
+// Toggle speech for summary content
+function toggleSummarySpeech() {
+    const btn = event.target;
+
+    if (isSpeaking) {
+        stopSpeech();
+        if (btn) {
+            btn.textContent = '🔊 Listen';
+            btn.classList.remove('speaking');
+        }
+    } else {
+        const summaryContent = document.querySelector('#viewer-summary .summary-content');
+        if (summaryContent) {
+            speakText(summaryContent.textContent, btn);
+        }
+    }
+}
+
+// Reset viewer listen button state
+function resetViewerListenButton() {
+    const btn = document.getElementById('viewer-listen-btn');
+    if (btn) {
+        btn.textContent = '🔊 Listen';
+        btn.classList.remove('speaking');
     }
 }
 
@@ -969,7 +1291,10 @@ function showDocumentViewer(title, content, url = null) {
                             <button class="btn btn-small" onclick="viewerSearchNext()">↓</button>
                             <button class="btn btn-small" onclick="viewerSearchClear()">Clear</button>
                         </div>
-                        <button id="viewer-summarize-btn" class="btn btn-small btn-primary" onclick="summarizeDocument()">Summarize</button>
+                        <div class="viewer-actions">
+                            <button id="viewer-listen-btn" class="btn btn-small btn-secondary" onclick="toggleViewerSpeech()">🔊 Listen</button>
+                            <button id="viewer-summarize-btn" class="btn btn-small btn-primary" onclick="summarizeDocument()">Summarize</button>
+                        </div>
                     </div>
                     <div id="viewer-summary" class="viewer-summary hidden"></div>
                     <div id="viewer-content" class="document-viewer-content"></div>
@@ -980,10 +1305,16 @@ function showDocumentViewer(title, content, url = null) {
 
         // Add close handler
         viewerModal.querySelector('.modal-close').addEventListener('click', () => {
+            stopSpeech();
+            resetViewerListenButton();
             viewerModal.classList.add('hidden');
         });
         viewerModal.addEventListener('click', (e) => {
-            if (e.target === viewerModal) viewerModal.classList.add('hidden');
+            if (e.target === viewerModal) {
+                stopSpeech();
+                resetViewerListenButton();
+                viewerModal.classList.add('hidden');
+            }
         });
 
         // Add search handler
@@ -1054,7 +1385,10 @@ async function summarizeDocument() {
         summaryEl.innerHTML = `
             <div class="summary-header">
                 <strong>AI Summary</strong>
-                <button class="btn btn-small" onclick="document.getElementById('viewer-summary').classList.add('hidden')">Hide</button>
+                <div class="summary-actions">
+                    <button class="btn btn-small btn-secondary" onclick="toggleSummarySpeech()">🔊 Listen</button>
+                    <button class="btn btn-small" onclick="document.getElementById('viewer-summary').classList.add('hidden')">Hide</button>
+                </div>
             </div>
             <div class="summary-content">${formatLessonContent(response.summary)}</div>
         `;

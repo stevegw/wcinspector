@@ -253,6 +253,162 @@ a:hover { color: var(--accent-hover); }
     font-size: 1.125rem;
 }
 
+.icon-btn.speaking {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    animation: pulse-speaking 1.5s ease-in-out infinite;
+}
+
+.icon-btn.speaking .icon {
+    filter: grayscale(1) brightness(2);
+}
+
+@keyframes pulse-speaking {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Voice Settings */
+.listen-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    position: relative;
+}
+
+.icon-btn-small {
+    width: 28px;
+    height: 28px;
+    font-size: 0.75rem;
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+.icon-btn-small:hover {
+    background: var(--bg-secondary);
+    border-color: var(--text-muted);
+}
+
+.icon-btn-small .icon {
+    font-size: 0.875rem;
+}
+
+.voice-settings-popup {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 16px;
+    min-width: 240px;
+    z-index: 100;
+}
+
+.voice-settings-popup.hidden {
+    display: none;
+}
+
+.voice-setting {
+    margin-bottom: 16px;
+}
+
+.voice-setting:last-child {
+    margin-bottom: 0;
+}
+
+.voice-setting label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+}
+
+.voice-setting select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+}
+
+.voice-setting select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.voice-setting input[type="range"] {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--border-color);
+    outline: none;
+    -webkit-appearance: none;
+    margin-top: 4px;
+}
+
+.voice-setting input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.voice-setting input[type="range"]::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--bg-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.voice-setting input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--border-color);
+}
+
+.voice-setting input[type="range"]::-moz-range-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--border-color);
+}
+
+/* Dark mode adjustments for voice settings */
+[data-theme="dark"] .voice-settings-popup {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .voice-setting select {
+    background: var(--bg-tertiary);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .voice-setting input[type="range"] {
+    background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .voice-setting input[type="range"]::-webkit-slider-runnable-track {
+    background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .voice-setting input[type="range"]::-moz-range-track {
+    background: var(--bg-tertiary);
+}
+
 /* Main Layout */
 .main-content {
     margin-top: var(--header-height);
@@ -926,6 +1082,20 @@ a:hover { color: var(--accent-hover); }
     margin-bottom: 0;
 }
 
+.viewer-actions {
+    display: flex;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+}
+
+.viewer-actions .btn.speaking,
+.summary-actions .btn.speaking {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: white;
+    animation: pulse-speaking 1.5s ease-in-out infinite;
+}
+
 /* Document summary */
 .viewer-summary {
     background: var(--bg-tertiary);
@@ -946,6 +1116,21 @@ a:hover { color: var(--accent-hover); }
     padding: var(--space-sm) var(--space-md);
     background: var(--accent);
     color: white;
+}
+
+.summary-actions {
+    display: flex;
+    gap: var(--space-xs);
+}
+
+.summary-actions .btn {
+    background: rgba(255,255,255,0.2);
+    border-color: rgba(255,255,255,0.3);
+    color: white;
+}
+
+.summary-actions .btn:hover {
+    background: rgba(255,255,255,0.3);
 }
 
 .summary-content {
