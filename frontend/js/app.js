@@ -146,7 +146,10 @@ const elements = {
     courseModalTitle: document.getElementById('course-modal-title'),
     courseTopic: document.getElementById('course-topic'),
     courseCategory: document.getElementById('course-category'),
-    courseNumLessons: document.getElementById('course-num-lessons'),
+    courseTypeQuestions: document.getElementById('course-type-questions'),
+    courseTypeLessons: document.getElementById('course-type-lessons'),
+    courseNumItems: document.getElementById('course-num-items'),
+    numItemsLabel: document.getElementById('num-items-label'),
     cancelCourseBtn: document.getElementById('cancel-course-btn'),
     generateCourseBtn: document.getElementById('generate-course-btn'),
     aiCourseForm: document.getElementById('ai-course-form'),
@@ -400,7 +403,13 @@ function setupEventListeners() {
 
     // Course event listeners
     if (elements.newCourseBtn) {
-        elements.newCourseBtn.addEventListener('click', () => showCourseModal());
+        console.log('Adding click listener to newCourseBtn');
+        elements.newCourseBtn.addEventListener('click', () => {
+            console.log('New Course button clicked');
+            showCourseModal();
+        });
+    } else {
+        console.error('newCourseBtn not found!');
     }
     if (elements.cancelCourseBtn) {
         elements.cancelCourseBtn.addEventListener('click', () => {
@@ -409,6 +418,12 @@ function setupEventListeners() {
     }
     if (elements.generateCourseBtn) {
         elements.generateCourseBtn.addEventListener('click', generateAICourse);
+    }
+    if (elements.courseTypeQuestions) {
+        elements.courseTypeQuestions.addEventListener('change', updateCourseTypeUI);
+    }
+    if (elements.courseTypeLessons) {
+        elements.courseTypeLessons.addEventListener('change', updateCourseTypeUI);
     }
 
     // Add Lessons Modal
@@ -1686,34 +1701,61 @@ function renderCourseList() {
         <div class="course-item ${currentCourse && currentCourse.id === course.id ? 'active' : ''}"
              data-id="${course.id}"
              title="${escapeHtml(course.title)} - ${course.completed_items}/${course.total_items} complete">
-            <div class="course-item-title">${escapeHtml(course.title)}</div>
-            <div class="progress-mini">
-                <div class="progress-mini-fill" style="width: ${course.progress}%"></div>
+            <div class="course-item-content">
+                <div class="course-item-title">${escapeHtml(course.title)}</div>
+                <div class="progress-mini">
+                    <div class="progress-mini-fill" style="width: ${course.progress}%"></div>
+                </div>
             </div>
+            <button class="course-delete-btn" data-id="${course.id}" title="Delete course">&times;</button>
         </div>
     `).join('');
 
-    // Add click handlers
-    elements.courseList.querySelectorAll('.course-item').forEach(item => {
-        item.addEventListener('click', () => openCourse(parseInt(item.dataset.id)));
+    // Add click handlers for opening courses
+    elements.courseList.querySelectorAll('.course-item-content').forEach(item => {
+        item.addEventListener('click', () => {
+            const courseId = parseInt(item.parentElement.dataset.id);
+            openCourse(courseId);
+        });
+    });
+
+    // Add click handlers for delete buttons
+    elements.courseList.querySelectorAll('.course-delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const courseId = parseInt(btn.dataset.id);
+            const course = courses.find(c => c.id === courseId);
+            showConfirm(
+                'Delete Course',
+                `Are you sure you want to delete "${course.title}"? This cannot be undone.`,
+                async () => {
+                    await deleteCourse(courseId);
+                }
+            );
+        });
     });
 }
 
 // Show AI course generation modal
 function showCourseModal() {
+    console.log('showCourseModal called');
     editingCourseId = null;
 
     // Reset form
     if (elements.courseTopic) {
         elements.courseTopic.value = '';
     }
-    if (elements.courseNumLessons) {
-        elements.courseNumLessons.value = '5';
+
+    // Default to questions type
+    if (elements.courseTypeQuestions) {
+        elements.courseTypeQuestions.checked = true;
+        updateCourseTypeUI();
     }
 
     // Populate category dropdown with all available categories
     if (elements.courseCategory) {
-        const categoryOptions = Object.entries(categories).map(([key, cat]) =>
+        const cats = categories || {};
+        const categoryOptions = Object.entries(cats).map(([key, cat]) =>
             `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)} (${cat.pages_scraped || 0} pages)</option>`
         ).join('');
         elements.courseCategory.innerHTML = '<option value="">All Sources</option>' + categoryOptions;
@@ -1731,14 +1773,47 @@ function showCourseModal() {
         elements.generateCourseBtn.disabled = false;
     }
 
-    showModal(elements.courseModal);
+    if (elements.courseModal) {
+        showModal(elements.courseModal);
+        console.log('Modal shown');
+    } else {
+        console.error('courseModal element not found!');
+        alert('Error: Course modal not found. Please refresh the page.');
+    }
+}
+
+// Update UI based on course type selection
+function updateCourseTypeUI() {
+    const isQuestions = elements.courseTypeQuestions && elements.courseTypeQuestions.checked;
+
+    if (elements.numItemsLabel) {
+        elements.numItemsLabel.textContent = isQuestions ? 'Number of Questions' : 'Number of Lessons';
+    }
+
+    if (elements.courseNumItems) {
+        if (isQuestions) {
+            elements.courseNumItems.innerHTML = `
+                <option value="5" selected>5 questions</option>
+                <option value="10">10 questions</option>
+                <option value="15">15 questions</option>
+            `;
+        } else {
+            elements.courseNumItems.innerHTML = `
+                <option value="3">3 lessons (Quick overview)</option>
+                <option value="5" selected>5 lessons (Standard)</option>
+                <option value="7">7 lessons (Comprehensive)</option>
+                <option value="10">10 lessons (Deep dive)</option>
+            `;
+        }
+    }
 }
 
 // Generate AI course
 async function generateAICourse() {
     const topic = elements.courseTopic ? elements.courseTopic.value.trim() : '';
     const category = elements.courseCategory ? elements.courseCategory.value : '';
-    const numLessons = elements.courseNumLessons ? parseInt(elements.courseNumLessons.value) : 5;
+    const numItems = elements.courseNumItems ? parseInt(elements.courseNumItems.value) : 5;
+    const isQuestions = elements.courseTypeQuestions && elements.courseTypeQuestions.checked;
 
     if (!topic) {
         showToast('Please describe what you want to learn', 'error');
@@ -1757,14 +1832,28 @@ async function generateAICourse() {
     }
 
     try {
-        const response = await apiRequest('/courses/generate', {
-            method: 'POST',
-            body: JSON.stringify({
-                topic: topic,
-                category: category || null,
-                num_lessons: numLessons
-            })
-        });
+        let response;
+        if (isQuestions) {
+            // Generate question-based course
+            response = await apiRequest('/courses/generate-questions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    topic: topic,
+                    category: category || null,
+                    num_questions: numItems
+                })
+            });
+        } else {
+            // Generate lesson-based course
+            response = await apiRequest('/courses/generate', {
+                method: 'POST',
+                body: JSON.stringify({
+                    topic: topic,
+                    category: category || null,
+                    num_lessons: numItems
+                })
+            });
+        }
 
         if (response.error) {
             throw new Error(response.error);
@@ -1781,7 +1870,9 @@ async function generateAICourse() {
         // Open the new course
         await openCourse(response.course_id);
 
-        showToast(`Course created with ${response.num_lessons} lessons!`, 'success');
+        const itemType = isQuestions ? 'questions' : 'lessons';
+        const itemCount = isQuestions ? response.num_questions : response.num_lessons;
+        showToast(`Course created with ${itemCount} ${itemType}!`, 'success');
     } catch (error) {
         console.error('Generation failed:', error);
         showToast(error.message || 'Failed to generate course', 'error');
@@ -2113,23 +2204,40 @@ function renderLessonList(course) {
     }
 
     elements.lessonList.innerHTML = course.items.map((item, index) => {
-        // Check for AI-generated title in instructor_notes
+        // Check for AI-generated title or question in instructor_notes
         let lessonTitle = item.page_title;
+        let isQuestion = false;
         if (item.instructor_notes) {
             try {
                 const aiContent = JSON.parse(item.instructor_notes);
-                if (aiContent.ai_generated && aiContent.title) {
+                if (aiContent.type === 'question') {
+                    // For questions, show a truncated version of the question
+                    isQuestion = true;
+                    const question = aiContent.question || '';
+                    lessonTitle = question.length > 50 ? question.substring(0, 50) + '...' : question;
+                } else if (aiContent.ai_generated && aiContent.title) {
                     lessonTitle = aiContent.title;
                 }
             } catch (e) { /* not JSON, use page_title */ }
         }
 
+        const itemLabel = isQuestion ? 'Q' : '';
+        // Determine quiz result class
+        let quizClass = '';
+        let checkIcon = '';
+        if (isQuestion && item.completed && item.quiz_correct !== null && item.quiz_correct !== undefined) {
+            quizClass = item.quiz_correct ? 'quiz-correct' : 'quiz-incorrect';
+            checkIcon = item.quiz_correct ? '✓' : '✗';
+        } else if (item.completed) {
+            checkIcon = '✓';
+        }
+
         return `
-            <div class="lesson-item ${item.completed ? 'completed' : ''} ${currentLessonId === item.id ? 'active' : ''}"
+            <div class="lesson-item ${item.completed ? 'completed' : ''} ${currentLessonId === item.id ? 'active' : ''} ${isQuestion ? 'question-item' : ''} ${quizClass}"
                  data-id="${item.id}">
-                <span class="lesson-position">${index + 1}</span>
+                <span class="lesson-position">${itemLabel}${index + 1}</span>
                 <div class="lesson-checkbox" data-id="${item.id}">
-                    ${item.completed ? '<span class="check-icon">✓</span>' : ''}
+                    ${checkIcon ? `<span class="check-icon">${checkIcon}</span>` : ''}
                 </div>
                 <span class="lesson-title-text">${escapeHtml(lessonTitle)}</span>
             </div>
@@ -2282,9 +2390,299 @@ function formatLessonContent(content) {
     return result.join('');
 }
 
+// Quiz state tracking - persists answers across navigation
+let quizState = {
+    courseId: null,
+    answers: {},  // itemId -> { selectedIndex, isCorrect }
+    total: 0
+};
+
+// Initialize quiz state for a course, loading saved answers from backend
+function initQuizState(courseId, totalQuestions, courseItems) {
+    if (quizState.courseId !== courseId) {
+        quizState = {
+            courseId: courseId,
+            answers: {},
+            total: totalQuestions
+        };
+
+        // Load saved answers from course items
+        if (courseItems) {
+            courseItems.forEach(item => {
+                if (item.quiz_answer !== null && item.quiz_answer !== undefined) {
+                    quizState.answers[item.id] = {
+                        selectedIndex: item.quiz_answer,
+                        isCorrect: item.quiz_correct === true
+                    };
+                }
+            });
+        }
+    }
+    updateQuizScoreBar();
+}
+
+// Get quiz score
+function getQuizScore() {
+    let correct = 0;
+    let answered = 0;
+    for (const key in quizState.answers) {
+        answered++;
+        if (quizState.answers[key].isCorrect) {
+            correct++;
+        }
+    }
+    return { correct, answered, total: quizState.total };
+}
+
+// Update quiz score bar display
+function updateQuizScoreBar() {
+    const scoreBar = document.getElementById('quiz-score-bar');
+    if (!scoreBar) return;
+
+    const { correct, answered, total } = getQuizScore();
+    const percentage = answered > 0 ? Math.round((correct / answered) * 100) : 0;
+
+    scoreBar.innerHTML = `
+        <div class="quiz-progress">
+            <span>Question ${answered} of ${total}</span>
+        </div>
+        <div id="quiz-score-display">
+            Score: <strong>${correct}/${answered}</strong> (${percentage}%)
+        </div>
+    `;
+    scoreBar.style.display = 'flex';
+}
+
+// Format a single quiz question with state
+function formatQuizQuestion(questionData, itemId) {
+    if (!questionData) return '<p class="empty-state">No content available</p>';
+
+    const difficulty = questionData.difficulty || 'basic';
+    const questionType = questionData.question_type || 'concept';
+    const options = questionData.options || [];
+    const correctIndex = questionData.correct_index;
+
+    // Fallback for old format (text answer instead of multiple choice)
+    if (!options.length || options.length !== 4) {
+        return formatOldQuestionContent(questionData);
+    }
+
+    // Check if already answered
+    const previousAnswer = quizState.answers[itemId];
+    const isAnswered = !!previousAnswer;
+
+    let html = '<div class="question-card quiz-question" data-item-id="' + itemId + '" data-answered="' + isAnswered + '">';
+
+    // Question header with result badge (only shown after answering)
+    html += '<div class="question-header">';
+    if (isAnswered) {
+        html += previousAnswer.isCorrect
+            ? '<span class="question-badge result-correct">Correct</span>'
+            : '<span class="question-badge result-incorrect">Incorrect</span>';
+    }
+    html += '</div>';
+
+    // Question
+    html += '<div class="question-text">';
+    html += `<h3>${escapeHtml(questionData.question)}</h3>`;
+    html += '</div>';
+
+    // Multiple choice options
+    html += '<div class="quiz-options">';
+    const optionLabels = ['A', 'B', 'C', 'D'];
+    options.forEach((option, idx) => {
+        let optionClass = 'quiz-option';
+        let disabled = '';
+
+        if (isAnswered) {
+            disabled = 'disabled';
+            if (idx === correctIndex) {
+                optionClass += ' correct';
+            } else if (idx === previousAnswer.selectedIndex) {
+                optionClass += ' incorrect';
+            }
+        }
+
+        html += `<button class="${optionClass}" data-index="${idx}" data-correct="${idx === correctIndex}" ${disabled} onclick="selectQuizOption(this, ${correctIndex}, '${itemId}')">`;
+        html += `<span class="option-label">${optionLabels[idx]}</span>`;
+        html += `<span class="option-text">${escapeHtml(option)}</span>`;
+        html += '</button>';
+    });
+    html += '</div>';
+
+    // Explanation (shown if answered)
+    const explanationVisible = isAnswered ? '' : 'hidden';
+    html += `<div class="quiz-explanation ${explanationVisible}">`;
+    if (questionData.explanation) {
+        html += `<p><strong>Explanation:</strong> ${escapeHtml(questionData.explanation)}</p>`;
+    }
+    html += '</div>';
+
+    html += '</div>'; // question-card
+    return html;
+}
+
+// Handle quiz option selection
+function selectQuizOption(button, correctIndex, itemId) {
+    const questionCard = button.closest('.quiz-question');
+
+    // Check if already answered
+    if (questionCard.dataset.answered === 'true') {
+        return;
+    }
+
+    // Mark as answered
+    questionCard.dataset.answered = 'true';
+
+    const selectedIndex = parseInt(button.dataset.index);
+    const isCorrect = selectedIndex === correctIndex;
+
+    // Save answer to state
+    quizState.answers[itemId] = {
+        selectedIndex: selectedIndex,
+        isCorrect: isCorrect
+    };
+
+    // Save answer to backend
+    if (currentCourse && currentCourse.id) {
+        apiRequest(`/courses/${currentCourse.id}/items/${itemId}/quiz-answer`, {
+            method: 'POST',
+            body: JSON.stringify({
+                selected_index: selectedIndex,
+                is_correct: isCorrect
+            })
+        }).catch(err => console.error('Failed to save quiz answer:', err));
+    }
+
+    if (isCorrect) {
+        button.classList.add('correct');
+    } else {
+        button.classList.add('incorrect');
+        // Highlight the correct answer
+        const correctButton = questionCard.querySelector(`[data-index="${correctIndex}"]`);
+        if (correctButton) {
+            correctButton.classList.add('correct');
+        }
+    }
+
+    // Disable all options
+    questionCard.querySelectorAll('.quiz-option').forEach(opt => {
+        opt.disabled = true;
+    });
+
+    // Show explanation
+    const explanation = questionCard.querySelector('.quiz-explanation');
+    if (explanation) {
+        explanation.classList.remove('hidden');
+    }
+
+    // Update score bar
+    updateQuizScoreBar();
+
+    // Add result badge
+    const header = questionCard.querySelector('.question-header');
+    if (header) {
+        const badge = document.createElement('span');
+        badge.className = isCorrect ? 'question-badge result-correct' : 'question-badge result-incorrect';
+        badge.textContent = isCorrect ? 'Correct' : 'Incorrect';
+        header.appendChild(badge);
+    }
+
+    // Auto-mark question as complete and update lesson list
+    if (currentCourse && currentCourse.id) {
+        // Mark complete on backend
+        apiRequest(`/courses/${currentCourse.id}/items/${itemId}/complete`, {
+            method: 'POST'
+        }).then(() => {
+            // Update the lesson list item with correct/incorrect color
+            const lessonItem = document.querySelector(`.lesson-item[data-id="${itemId}"]`);
+            if (lessonItem) {
+                lessonItem.classList.add('completed');
+                lessonItem.classList.add(isCorrect ? 'quiz-correct' : 'quiz-incorrect');
+                const checkbox = lessonItem.querySelector('.lesson-checkbox');
+                if (checkbox) {
+                    checkbox.innerHTML = isCorrect ? '<span class="check-icon">✓</span>' : '<span class="check-icon">✗</span>';
+                }
+            }
+            // Update the item in currentCourse
+            const item = currentCourse.items.find(i => i.id === parseInt(itemId));
+            if (item) {
+                item.completed = true;
+                item.quiz_correct = isCorrect;
+            }
+        }).catch(err => console.error('Failed to mark complete:', err));
+    }
+}
+
+// Format old-style question content (text answer, not multiple choice)
+function formatOldQuestionContent(questionData) {
+    const difficulty = questionData.difficulty || 'basic';
+    const questionType = questionData.question_type || 'concept';
+
+    let html = '<div class="question-card">';
+
+    // Question header with badges
+    html += '<div class="question-header">';
+    html += `<span class="question-badge difficulty-${difficulty}">${difficulty}</span>`;
+    html += `<span class="question-badge type-${questionType}">${questionType}</span>`;
+    html += '<span class="question-badge" style="background: var(--warning); color: #000;">Old Format</span>';
+    html += '</div>';
+
+    // Question
+    html += '<div class="question-text">';
+    html += `<h3>${escapeHtml(questionData.question)}</h3>`;
+    html += '</div>';
+
+    // Answer section (hidden by default)
+    html += '<div class="answer-section">';
+    html += '<button class="btn btn-primary show-answer-btn" onclick="toggleOldAnswer(this)">Show Answer</button>';
+    html += '<div class="answer-content hidden">';
+
+    // Answer
+    html += '<div class="answer-text">';
+    html += `<strong>Answer:</strong>`;
+    html += `<p>${escapeHtml(questionData.answer || 'No answer available')}</p>`;
+    html += '</div>';
+
+    // Source excerpt
+    if (questionData.source_excerpt) {
+        html += '<div class="source-excerpt">';
+        html += '<strong>Source Reference:</strong>';
+        html += `<blockquote>${escapeHtml(questionData.source_excerpt)}</blockquote>`;
+        html += '</div>';
+    }
+
+    html += '</div>'; // answer-content
+    html += '</div>'; // answer-section
+
+    html += '</div>'; // question-card
+    return html;
+}
+
+// Toggle old-style answer visibility
+function toggleOldAnswer(button) {
+    const answerContent = button.nextElementSibling;
+    if (answerContent.classList.contains('hidden')) {
+        answerContent.classList.remove('hidden');
+        button.textContent = 'Hide Answer';
+        button.classList.remove('btn-primary');
+        button.classList.add('btn-secondary');
+    } else {
+        answerContent.classList.add('hidden');
+        button.textContent = 'Show Answer';
+        button.classList.remove('btn-secondary');
+        button.classList.add('btn-primary');
+    }
+}
+
 // Format AI-generated lesson content
-function formatAILessonContent(aiContent) {
+function formatAILessonContent(aiContent, itemId) {
     if (!aiContent) return '<p class="empty-state">No content available</p>';
+
+    // Check if this is question-type content
+    if (aiContent.type === 'question') {
+        return formatQuizQuestion(aiContent, itemId);
+    }
 
     let html = '<div class="ai-lesson-content">';
 
@@ -2381,12 +2779,15 @@ function openLesson(itemId) {
         });
     }
 
-    // Check if this is AI-generated content
+    // Check if this is AI-generated content (lesson or question)
     let aiContent = null;
     if (item.instructor_notes) {
         try {
             aiContent = JSON.parse(item.instructor_notes);
-            if (!aiContent.ai_generated) aiContent = null;
+            // Accept both ai_generated lessons and question type content
+            if (!aiContent.ai_generated && aiContent.type !== 'question') {
+                aiContent = null;
+            }
         } catch (e) {
             aiContent = null;
         }
@@ -2399,7 +2800,12 @@ function openLesson(itemId) {
 
     // Update lesson title
     if (elements.lessonTitle) {
-        elements.lessonTitle.textContent = aiContent ? aiContent.title : item.page_title;
+        if (aiContent && aiContent.type === 'question') {
+            // For questions, show "Question X" as title
+            elements.lessonTitle.textContent = `Question ${index + 1}`;
+        } else {
+            elements.lessonTitle.textContent = aiContent ? aiContent.title : item.page_title;
+        }
     }
 
     // Update source link
@@ -2429,11 +2835,34 @@ function openLesson(itemId) {
     // Update lesson content
     if (elements.lessonPageContent) {
         if (aiContent) {
+            // Check if this is a quiz (question-type course with multiple choice)
+            if (aiContent.type === 'question') {
+                // Check if it's new format (has options array)
+                const isNewFormat = aiContent.options && aiContent.options.length === 4;
+
+                if (isNewFormat) {
+                    // Initialize quiz state if needed
+                    const questionItems = currentCourse.items.filter(i => {
+                        try {
+                            const data = JSON.parse(i.instructor_notes || '{}');
+                            return data.type === 'question' && data.options && data.options.length === 4;
+                        } catch { return false; }
+                    });
+                    initQuizState(currentCourse.id, questionItems.length, questionItems);
+                } else {
+                    // Hide score bar for old format
+                    const scoreBar = document.getElementById('quiz-score-bar');
+                    if (scoreBar) scoreBar.style.display = 'none';
+                }
+            }
             // Display AI-generated content with nice formatting
-            elements.lessonPageContent.innerHTML = formatAILessonContent(aiContent);
+            elements.lessonPageContent.innerHTML = formatAILessonContent(aiContent, itemId);
         } else {
             // Display scraped page content
             elements.lessonPageContent.innerHTML = formatLessonContent(item.page_content);
+            // Hide quiz score bar for non-quiz content
+            const scoreBar = document.getElementById('quiz-score-bar');
+            if (scoreBar) scoreBar.style.display = 'none';
         }
     }
 
@@ -2446,11 +2875,22 @@ function openLesson(itemId) {
         elements.notesSaveStatus.className = 'notes-status';
     }
 
-    // Update mark complete button
-    updateMarkCompleteButton(item.completed);
+    // Check if this is a quiz course
+    const isQuizCourse = aiContent && aiContent.type === 'question';
 
-    // Update nav button states
-    updateLessonNavButtons();
+    // Hide/show navigation and mark complete based on content type
+    const lessonActions = document.querySelector('.lesson-actions');
+    if (lessonActions) {
+        if (isQuizCourse) {
+            lessonActions.style.display = 'none';
+        } else {
+            lessonActions.style.display = '';
+            // Update mark complete button
+            updateMarkCompleteButton(item.completed);
+            // Update nav button states
+            updateLessonNavButtons();
+        }
+    }
 
     // Show lesson content
     if (elements.lessonContent) {

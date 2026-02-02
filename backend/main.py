@@ -978,6 +978,12 @@ class GenerateCourseRequest(BaseModel):
     num_lessons: int = 5
 
 
+class GenerateQuestionsRequest(BaseModel):
+    topic: str
+    category: Optional[str] = None
+    num_questions: int = 15
+
+
 @app.get("/api/courses")
 async def list_courses():
     """List all courses with progress stats"""
@@ -1040,7 +1046,9 @@ async def get_course(course_id: int):
                 "instructor_notes": item.instructor_notes,
                 "learner_notes": item.learner_notes,
                 "completed": item.completed,
-                "completed_at": item.completed_at.isoformat() if item.completed_at else None
+                "completed_at": item.completed_at.isoformat() if item.completed_at else None,
+                "quiz_answer": item.quiz_answer,
+                "quiz_correct": item.quiz_correct
             })
 
         return {
@@ -1184,6 +1192,97 @@ async def generate_ai_course(request: GenerateCourseRequest):
             "title": course.title,
             "description": course.description,
             "num_lessons": len(lessons),
+            "sources_used": result.get("sources_used", 0)
+        }
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to save course: {str(e)}"}
+        )
+    finally:
+        db.close()
+
+
+@app.post("/api/courses/generate-questions")
+async def generate_question_course(request: GenerateQuestionsRequest):
+    """Generate a question-based study course from documentation"""
+    from database import SessionLocal, Course, CourseItem, ScrapedPage
+    from rag import generate_questions
+
+    # Generate questions with AI
+    result = await generate_questions(
+        topic=request.topic,
+        category=request.category,
+        num_questions=request.num_questions
+    )
+
+    if not result.get("success"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": result.get("error", "Failed to generate questions")}
+        )
+
+    questions_data = result.get("questions", {})
+    questions_list = questions_data.get("questions", [])
+
+    # Create the course in database
+    db = SessionLocal()
+    try:
+        # Create course record with "questions" type
+        course = Course(
+            title=questions_data.get("title", f"Study Questions: {request.topic}"),
+            description=questions_data.get("description", ""),
+            category=request.category
+        )
+        db.add(course)
+        db.commit()
+        db.refresh(course)
+
+        # Find a page to link to (for the page_id requirement)
+        fallback_page = None
+        if request.category:
+            fallback_page = db.query(ScrapedPage).filter(
+                ScrapedPage.category == request.category
+            ).first()
+        if not fallback_page:
+            fallback_page = db.query(ScrapedPage).first()
+
+        page_id = fallback_page.id if fallback_page else None
+
+        # Create course items for each question
+        import json
+        for position, question in enumerate(questions_list):
+            question_content = json.dumps({
+                "type": "question",
+                "question": question.get("question", ""),
+                "options": question.get("options", []),  # Multiple choice options
+                "correct_index": question.get("correct_index"),  # Index of correct answer
+                "explanation": question.get("explanation", ""),  # Why the answer is correct
+                "answer": question.get("answer", ""),  # Legacy field
+                "source_excerpt": question.get("source_excerpt", ""),
+                "question_type": question.get("question_type", "concept"),
+                "difficulty": question.get("difficulty", "basic"),
+                "source_urls": questions_data.get("source_urls", [])
+            })
+
+            if page_id:
+                item = CourseItem(
+                    course_id=course.id,
+                    page_id=page_id,
+                    position=position,
+                    instructor_notes=question_content
+                )
+                db.add(item)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "course_id": course.id,
+            "title": course.title,
+            "description": course.description,
+            "num_questions": len(questions_list),
             "sources_used": result.get("sources_used", 0)
         }
     except Exception as e:
@@ -1486,6 +1585,40 @@ async def save_learner_notes(course_id: int, item_id: int, notes_data: LearnerNo
         db.commit()
 
         return {"status": "success", "message": "Notes saved"}
+    finally:
+        db.close()
+
+
+class QuizAnswer(BaseModel):
+    selected_index: int
+    is_correct: bool
+
+
+@app.post("/api/courses/{course_id}/items/{item_id}/quiz-answer")
+async def save_quiz_answer(course_id: int, item_id: int, answer_data: QuizAnswer):
+    """Save a quiz answer for a course item"""
+    from database import SessionLocal, CourseItem
+
+    db = SessionLocal()
+    try:
+        item = db.query(CourseItem).filter(
+            CourseItem.id == item_id,
+            CourseItem.course_id == course_id
+        ).first()
+
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Item not found"})
+
+        item.quiz_answer = answer_data.selected_index
+        item.quiz_correct = answer_data.is_correct
+        db.commit()
+
+        return {
+            "status": "success",
+            "item_id": item_id,
+            "quiz_answer": item.quiz_answer,
+            "quiz_correct": item.quiz_correct
+        }
     finally:
         db.close()
 

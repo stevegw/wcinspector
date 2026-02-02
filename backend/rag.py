@@ -831,3 +831,243 @@ Remember: Respond with valid JSON only."""
         }
     except Exception as e:
         return {"success": False, "error": f"Error generating course: {str(e)}"}
+
+
+async def generate_questions(
+    topic: str,
+    category: str = None,
+    num_questions: int = 15,
+    provider: str = None,
+    model: str = None,
+    groq_model: str = None
+) -> Dict:
+    """
+    Generate question-based learning content from documentation.
+
+    Creates specific Q&A pairs with source excerpts for verification.
+    Better for detailed technical content than vague lesson summaries.
+    """
+    from database import SessionLocal, Setting, ScrapedPage
+
+    # Get settings if not provided
+    if not provider or not model or not groq_model:
+        db = SessionLocal()
+        try:
+            settings_records = db.query(Setting).all()
+            settings = {record.key: record.value for record in settings_records}
+            provider = provider or settings.get("llm_provider", "groq")
+            model = model or settings.get("ollama_model", "llama3:8b")
+            groq_model = groq_model or settings.get("groq_model", "llama-3.1-8b-instant")
+        finally:
+            db.close()
+
+    # Get document content - prioritize specific category if provided
+    db = SessionLocal()
+    try:
+        if category:
+            pages = db.query(ScrapedPage).filter(
+                ScrapedPage.category == category
+            ).limit(10).all()
+        else:
+            # Search for relevant documents
+            pages = []
+            context_docs = await search_similar_documents(topic, n_results=10, category=category)
+            if context_docs:
+                page_urls = [doc.get('url') for doc in context_docs if doc.get('url')]
+                if page_urls:
+                    pages = db.query(ScrapedPage).filter(
+                        ScrapedPage.url.in_(page_urls)
+                    ).all()
+
+        if not pages:
+            return {
+                "success": False,
+                "error": "No documentation found for this topic/category."
+            }
+
+        # Build content chunks with source tracking
+        content_chunks = []
+        for page in pages:
+            if page.content and len(page.content) > 100:
+                # Split large documents into chunks for better question generation
+                content = page.content
+                chunk_size = 2000
+                for i in range(0, len(content), chunk_size):
+                    chunk = content[i:i + chunk_size]
+                    if len(chunk) > 100:  # Only use substantial chunks
+                        content_chunks.append({
+                            "content": chunk,
+                            "source_title": page.title,
+                            "source_url": page.url
+                        })
+
+        if not content_chunks:
+            return {
+                "success": False,
+                "error": "Document content too short to generate questions."
+            }
+
+        # Limit chunks to avoid token limits
+        content_chunks = content_chunks[:8]
+
+    finally:
+        db.close()
+
+    # Build context for question generation
+    context_text = "\n\n---\n\n".join([
+        f"SOURCE: {chunk['source_title']}\n{chunk['content']}"
+        for chunk in content_chunks
+    ])
+
+    system_prompt = """You are an expert technical trainer creating multiple choice quiz questions for PTC Windchill and Creo software.
+
+Your task is to create specific, answerable MULTIPLE CHOICE questions based ONLY on the provided documentation.
+
+CRITICAL RULES:
+1. Every question MUST be directly answerable from the provided text
+2. Each question has exactly 4 options: 1 correct answer and 3 plausible but incorrect options
+3. The incorrect options should be believable but clearly wrong based on the documentation
+4. NEVER create a question if you cannot find the answer in the documentation
+5. Mix question types: definitions, procedures, concepts, applications
+6. Make the correct answer index vary (don't always put correct answer first)
+
+You MUST respond with valid JSON only, no other text. Use this exact format:
+{
+  "title": "Quiz: [Topic]",
+  "description": "Test your knowledge of [topic]",
+  "questions": [
+    {
+      "question": "What is the purpose of X in Windchill?",
+      "options": ["Option A (correct answer)", "Option B (wrong)", "Option C (wrong)", "Option D (wrong)"],
+      "correct_index": 0,
+      "explanation": "Brief explanation why this is correct, referencing the documentation",
+      "question_type": "definition|procedure|concept|application",
+      "difficulty": "basic|intermediate|advanced"
+    }
+  ]
+}
+
+Question type guidelines:
+- definition: "What is X?" / "Which best describes X?"
+- procedure: "What is the first step to...?" / "Which action should you take to...?"
+- concept: "Why does...?" / "What is the relationship between...?"
+- application: "When would you use...?" / "In what scenario would you...?"
+
+IMPORTANT: Vary the correct_index (0, 1, 2, or 3) randomly across questions. Do not make patterns."""
+
+    user_prompt = f"""Generate {num_questions} multiple choice quiz questions about: {topic}
+
+Based on this documentation:
+
+{context_text}
+
+Remember:
+- Every correct answer must come directly from the text above
+- Create 3 plausible but incorrect options for each question
+- Vary the correct_index (0-3) randomly
+- Respond with valid JSON only"""
+
+    try:
+        if provider == "groq" and groq_client:
+            response = groq_client.chat.completions.create(
+                model=groq_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.5,  # Lower temp for more factual responses
+                max_tokens=4000
+            )
+            questions_json = response.choices[0].message.content
+        else:
+            # Use Ollama
+            async with httpx.AsyncClient(timeout=180.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": user_prompt,
+                        "system": system_prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.5,
+                            "num_predict": 4000
+                        }
+                    }
+                )
+                if response.status_code == 200:
+                    questions_json = response.json().get("response", "")
+                else:
+                    return {"success": False, "error": f"Ollama error: {response.status_code}"}
+
+        # Parse the JSON response
+        questions_json = questions_json.strip()
+        if questions_json.startswith("```json"):
+            questions_json = questions_json[7:]
+        if questions_json.startswith("```"):
+            questions_json = questions_json[3:]
+        if questions_json.endswith("```"):
+            questions_json = questions_json[:-3]
+        questions_json = questions_json.strip()
+
+        questions_data = json.loads(questions_json)
+
+        # Validate multiple choice questions
+        if "questions" in questions_data:
+            valid_questions = []
+            for q in questions_data["questions"]:
+                options = q.get("options", [])
+                correct_index = q.get("correct_index")
+
+                # Validate structure
+                is_valid = True
+
+                # Must have exactly 4 options
+                if len(options) != 4:
+                    is_valid = False
+
+                # correct_index must be valid
+                if correct_index is None or not isinstance(correct_index, int) or correct_index < 0 or correct_index > 3:
+                    is_valid = False
+
+                # All options must have content
+                if is_valid:
+                    for opt in options:
+                        if not opt or len(str(opt).strip()) < 3:
+                            is_valid = False
+                            break
+
+                # Must have a question
+                if not q.get("question", "").strip():
+                    is_valid = False
+
+                if is_valid:
+                    valid_questions.append(q)
+
+            questions_data["questions"] = valid_questions
+
+            if not valid_questions:
+                return {
+                    "success": False,
+                    "error": "Could not generate valid quiz questions from the documentation. The topic may not be covered in sufficient detail."
+                }
+
+        # Add source URLs to questions
+        source_urls = list(set([chunk['source_url'] for chunk in content_chunks]))
+        questions_data['source_urls'] = source_urls
+
+        return {
+            "success": True,
+            "questions": questions_data,
+            "sources_used": len(content_chunks),
+            "filtered_count": len(questions_data.get("questions", []))
+        }
+
+    except json.JSONDecodeError as e:
+        return {
+            "success": False,
+            "error": f"Failed to parse AI response as JSON: {str(e)}",
+            "raw_response": questions_json[:500] if 'questions_json' in locals() else None
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Error generating questions: {str(e)}"}

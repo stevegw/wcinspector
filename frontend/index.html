@@ -359,7 +359,7 @@
             </div>
             <div class="modal-body">
                 <div class="ai-course-form" id="ai-course-form">
-                    <p class="modal-description">Describe what you want to learn and AI will create a structured course from the documentation.</p>
+                    <p class="modal-description">Describe what you want to learn and AI will create study content from the documentation.</p>
                     <div class="setting-group">
                         <label for="course-topic">What do you want to learn? *</label>
                         <input type="text" id="course-topic" placeholder="e.g., BOM management in Windchill, Change management basics, How to configure workflows" required>
@@ -372,12 +372,31 @@
                         </select>
                     </div>
                     <div class="setting-group">
-                        <label for="course-num-lessons">Number of Lessons</label>
-                        <select id="course-num-lessons">
-                            <option value="3">3 lessons (Quick overview)</option>
-                            <option value="5" selected>5 lessons (Standard)</option>
-                            <option value="7">7 lessons (Comprehensive)</option>
-                            <option value="10">10 lessons (Deep dive)</option>
+                        <label>Course Type</label>
+                        <div class="course-type-options">
+                            <label class="radio-option">
+                                <input type="radio" name="course-type" value="questions" id="course-type-questions" checked>
+                                <span class="radio-label">
+                                    <strong>Quiz-Based</strong>
+                                    <small>Multiple choice questions to test your knowledge</small>
+                                </span>
+                            </label>
+                            <label class="radio-option">
+                                <input type="radio" name="course-type" value="lessons" id="course-type-lessons">
+                                <span class="radio-label">
+                                    <strong>Lesson-Based</strong>
+                                    <small>Structured lessons with summaries - better for overviews</small>
+                                </span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="setting-group" id="num-items-group">
+                        <label for="course-num-items" id="num-items-label">Number of Questions</label>
+                        <select id="course-num-items">
+                            <option value="10">10 questions</option>
+                            <option value="15" selected>15 questions</option>
+                            <option value="20">20 questions</option>
+                            <option value="25">25 questions</option>
                         </select>
                     </div>
                 </div>
@@ -467,6 +486,10 @@
                         <h3 id="lesson-title">Lesson Title</h3>
                     </div>
                     <a id="lesson-source-link" href="#" target="_blank" class="btn btn-small btn-secondary">View Original</a>
+                </div>
+
+                <div class="quiz-score-bar" id="quiz-score-bar" style="display: none;">
+                    <!-- Quiz score will be populated by JavaScript -->
                 </div>
 
                 <div class="lesson-detail-content" id="lesson-page-content">

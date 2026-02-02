@@ -178,6 +178,8 @@ class CourseItem(Base):
     learner_notes = Column(Text)  # Personal notes while learning
     completed = Column(Boolean, default=False)
     completed_at = Column(DateTime)
+    quiz_answer = Column(Integer)  # For quiz questions: index of selected answer (0-3)
+    quiz_correct = Column(Boolean)  # Whether the quiz answer was correct
 
     # Relationships
     course = relationship("Course", back_populates="items")
@@ -198,6 +200,21 @@ DEFAULT_SETTINGS = {
 def init_db():
     """Initialize the database - create all tables"""
     Base.metadata.create_all(bind=engine)
+
+    # Run migrations for new columns
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        # Check if quiz_answer column exists in course_items
+        result = conn.execute(text("PRAGMA table_info(course_items)"))
+        columns = [row[1] for row in result.fetchall()]
+
+        if 'quiz_answer' not in columns:
+            conn.execute(text("ALTER TABLE course_items ADD COLUMN quiz_answer INTEGER"))
+            conn.commit()
+
+        if 'quiz_correct' not in columns:
+            conn.execute(text("ALTER TABLE course_items ADD COLUMN quiz_correct BOOLEAN"))
+            conn.commit()
 
     # Initialize default settings
     db = SessionLocal()
