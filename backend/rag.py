@@ -20,9 +20,10 @@ print("Loading embedding model...")
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 print("Embedding model loaded: all-MiniLM-L6-v2")
 
-# Chunking settings (same as wcinvestigator)
-CHUNK_SIZE = 1000  # characters
-CHUNK_OVERLAP = 150
+# Chunking settings - increased for richer context per chunk
+# Note: Changing these requires re-indexing existing content
+CHUNK_SIZE = 1500  # characters (was 1000)
+CHUNK_OVERLAP = 300  # overlap for better continuity (was 150)
 
 
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
@@ -277,10 +278,12 @@ async def search_similar_documents(query: str, n_results: int = 5, topic_filter:
         query_embedding = embedding_model.encode(query).tolist()
 
         # Build query parameters with embedding
+        # Fetch more results when filtering to have enough after post-filtering
         has_filter = topic_filter or category
         query_params = {
             "query_embeddings": [query_embedding],
-            "n_results": n_results * 2 if has_filter else n_results  # Fetch more if filtering
+            "n_results": n_results * 3 if has_filter else n_results * 2,  # Fetch extra for diversity filtering
+            "include": ["documents", "metadatas", "distances"]
         }
 
         # Build where clause for filters
@@ -295,19 +298,57 @@ async def search_similar_documents(query: str, n_results: int = 5, topic_filter:
         elif len(where_conditions) > 1:
             query_params["where"] = {"$and": where_conditions}
 
+        print(f"[RAG] Searching with category={category}, topic={topic_filter}, n_results={query_params['n_results']}")
+        if "where" in query_params:
+            print(f"[RAG] Where clause: {query_params['where']}")
+
         results = collection.query(**query_params)
 
+        # Debug: Log what categories were returned
+        if results and results.get("metadatas") and results["metadatas"][0]:
+            returned_categories = [m.get("category", "unknown") for m in results["metadatas"][0]]
+            print(f"[RAG] Raw results categories: {set(returned_categories)} (total: {len(returned_categories)})")
+
         documents = []
+        url_counts = {}  # Track chunks per URL for diversity
+        max_per_url = 2  # Maximum chunks from same source URL
+
         if results and results.get("documents"):
             for i, doc in enumerate(results["documents"][0]):
                 metadata = results["metadatas"][0][i] if results.get("metadatas") else {}
+                url = metadata.get("url", "")
+                doc_category = metadata.get("category", "")
+                doc_topic = metadata.get("topic", "")
+
+                # Post-filter verification: ensure category matches if filter was specified
+                # This catches any cases where ChromaDB's where clause didn't work as expected
+                if category:
+                    # Skip if category doesn't match
+                    if doc_category and doc_category != category:
+                        continue
+                    # Also check URL patterns for PTC documentation
+                    url_lower = url.lower()
+                    if category == "windchill" and "creo" in url_lower and "windchill" not in url_lower:
+                        continue
+                    if category == "creo" and "windchill" in url_lower and "creo" not in url_lower:
+                        continue
+
+                if topic_filter and doc_topic and doc_topic != topic_filter:
+                    continue  # Skip documents that don't match the requested topic
+
+                # Enforce diversity: max 2 chunks per source URL
+                if url:
+                    url_counts[url] = url_counts.get(url, 0) + 1
+                    if url_counts[url] > max_per_url:
+                        continue  # Skip this chunk, already have enough from this URL
+
                 doc_entry = {
                     "content": doc,
-                    "url": metadata.get("url", ""),
+                    "url": url,
                     "title": metadata.get("title", ""),
                     "section": metadata.get("section", ""),
-                    "topic": metadata.get("topic", ""),
-                    "category": metadata.get("category", ""),
+                    "topic": doc_topic,
+                    "category": doc_category,
                     "chunk_type": metadata.get("chunk_type", "text")
                 }
                 # Include image metadata if this is an image chunk
@@ -318,8 +359,18 @@ async def search_similar_documents(query: str, n_results: int = 5, topic_filter:
 
                 documents.append(doc_entry)
 
-        # Limit results after filtering
-        return documents[:n_results]
+                # Stop once we have enough diverse results
+                if len(documents) >= n_results:
+                    break
+
+        # Debug: Log final filtered results
+        if documents:
+            final_categories = [d.get("category", "unknown") for d in documents]
+            final_urls = [d.get("url", "")[:50] for d in documents[:5]]
+            print(f"[RAG] Final results: {len(documents)} docs, categories: {set(final_categories)}")
+            print(f"[RAG] Sample URLs: {final_urls}")
+
+        return documents
     except Exception as e:
         print(f"Error searching documents: {e}")
         return []
@@ -332,13 +383,22 @@ async def generate_answer_with_groq(
     source_urls: List[str],
     length: str = "detailed",
     category: str = None,
-    model: str = None
+    model: str = None,
+    tone: str = "technical"
 ) -> Tuple[str, List[str]]:
     """Generate an answer using Groq API"""
     if not groq_client:
         return "Groq client not initialized. Check GROQ_API_KEY.", source_urls
 
     use_model = model or LLM_MODEL or DEFAULT_MODELS["groq"]
+
+    # Adaptive temperature based on tone
+    tone_temperatures = {
+        "technical": 0.4,  # More factual/precise
+        "formal": 0.6,     # Balanced
+        "casual": 0.8      # More creative
+    }
+    temperature = tone_temperatures.get(tone, 0.6)
 
     product_name = "Creo Parametric" if category == "creo" else "Windchill"
     user_prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
@@ -354,7 +414,7 @@ Provide a helpful, accurate answer. If you reference specific information from t
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.7,
+            temperature=temperature,
             max_tokens=2000 if length == "detailed" else 500
         )
         answer = response.choices[0].message.content
@@ -370,9 +430,18 @@ async def generate_answer_with_ollama(
     source_urls: List[str],
     model: str = "llama3:8b",
     length: str = "detailed",
-    category: str = None
+    category: str = None,
+    tone: str = "technical"
 ) -> Tuple[str, List[str]]:
     """Generate an answer using Ollama with the retrieved context"""
+
+    # Adaptive temperature based on tone
+    tone_temperatures = {
+        "technical": 0.4,  # More factual/precise
+        "formal": 0.6,     # Balanced
+        "casual": 0.8      # More creative
+    }
+    temperature = tone_temperatures.get(tone, 0.6)
 
     product_name = "Creo Parametric" if category == "creo" else "Windchill"
     prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
@@ -391,7 +460,7 @@ Provide a helpful, accurate answer. If you reference specific information from t
                     "system": system_prompt,
                     "stream": False,
                     "options": {
-                        "temperature": 0.7,
+                        "temperature": temperature,
                         "num_predict": 1000 if length == "detailed" else 300
                     }
                 }
@@ -433,10 +502,25 @@ async def generate_answer(
     # Build context from retrieved documents and collect images
     context_parts = []
     source_urls = []
+    seen_urls = set()
     relevant_images = []
     seen_image_urls = set()
 
     for doc in context_documents:
+        doc_category = doc.get("category", "")
+        doc_url = doc.get("url", "").lower()
+
+        # Skip documents that don't match the requested category (extra safety filter)
+        if category:
+            # Check metadata category
+            if doc_category and doc_category != category:
+                continue
+            # Also check URL patterns for PTC documentation
+            if category == "windchill" and "creo" in doc_url and "windchill" not in doc_url:
+                continue
+            if category == "creo" and "windchill" in doc_url and "creo" not in doc_url:
+                continue
+
         # Collect images from image chunks
         if doc.get("chunk_type") == "image" and doc.get("image_url"):
             img_url = doc["image_url"]
@@ -452,8 +536,10 @@ async def generate_answer(
 
         if doc.get("content"):
             context_parts.append(f"Title: {doc.get('title', 'Unknown')}\nContent: {doc['content'][:2000]}")
-            if doc.get("url"):
-                source_urls.append(doc["url"])
+            url = doc.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                source_urls.append(url)
 
     context = "\n\n---\n\n".join(context_parts) if context_parts else "No specific documentation found."
 
@@ -481,43 +567,46 @@ async def generate_answer(
         example_menu = "Actions > Lifecycle > Set State"
         example_item = "Part: BRACKET-001"
 
-    system_prompt = f"""You are a {product_name} training instructor helping users learn {product_desc}. Give PRACTICAL, HANDS-ON guidance like you're teaching a class.
+    system_prompt = f"""You are a {product_name} training instructor helping users learn {product_desc}. Give PRACTICAL, HANDS-ON guidance based on the documentation provided.
 
-YOUR RESPONSE MUST FOLLOW THIS FORMAT:
+Consider including these elements when relevant to the question:
 
-**Overview:** [1-2 sentence summary]
+- **Overview:** A brief summary of the concept or task
+- **Step-by-Step Instructions:** Numbered steps with specific menu paths (e.g., "{example_menu}")
+- **What You'll See:** Description of the UI or expected result
 
-**Step-by-Step Instructions:**
-1. [First step with specific menu path, e.g., "{example_menu}"]
-2. [Second step describing what to enter/select]
-3. [Continue with numbered steps...]
+Adapt your response format to match the question type:
+- For "how to" questions: Focus on clear steps
+- For "what is" questions: Focus on explanation and context
+- For troubleshooting: Focus on diagnosis and solutions
+- For comparisons: Use structured comparison format
 
-**What You'll See:** [Describe the UI dialog or confirmation]
+Guidelines:
+- Base your answer primarily on the documentation context provided below
+- Use specific menu paths and concrete examples like "{example_item}" when available in the context
+- If the documentation doesn't cover something, acknowledge the limitation rather than guessing
+- Explain why steps matter, not just what to do
+- Warn about common mistakes when documented
 
-**Pro Tip:** [One practical shortcut or best practice]
-
-GUIDELINES:
-- Use specific menu paths relevant to {product_name}
-- Give concrete examples like "{example_item}"
-- Explain why each step matters
-- Warn about common mistakes beginners make
+IMPORTANT: Always end your response with 1-2 practical pro tips using this exact format:
+**Pro Tip:** [A specific shortcut, best practice, or insider knowledge that helps users work more efficiently]
 
 {tone_instructions.get(tone, tone_instructions['technical'])}
 {length_instructions.get(length, length_instructions['detailed'])}
 
-IMPORTANT: Even if the documentation context is limited, use your knowledge of {product_name} to provide complete, actionable step-by-step instructions. Never say "refer to documentation" - always give the actual steps. Focus ONLY on {product_name} - do not mention other PTC products unless directly relevant.
+Focus ONLY on {product_name} - do not mention other PTC products unless directly relevant to the question.
 
-Context from PTC documentation:
+Documentation context:
 {context}
 """
 
     # Use selected provider (Groq or Ollama)
     if use_provider == "groq" and groq_client:
-        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length, category, use_groq_model)
+        answer, urls = await generate_answer_with_groq(question, context, system_prompt, source_urls, length, category, use_groq_model, tone)
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
     else:
         ollama_model = model or LLM_MODEL or DEFAULT_MODELS["ollama"]
-        answer, urls = await generate_answer_with_ollama(question, context, system_prompt, source_urls, ollama_model, length, category)
+        answer, urls = await generate_answer_with_ollama(question, context, system_prompt, source_urls, ollama_model, length, category, tone)
         return answer, urls, relevant_images[:5]  # Limit to 5 most relevant images
 
 
@@ -569,26 +658,8 @@ def extract_pro_tips(answer: str, question: str) -> Tuple[List[str], str]:
     # Clean up extra whitespace
     cleaned_answer = re.sub(r'\n{3,}', '\n\n', cleaned_answer).strip()
 
-    # If no tips were found in the answer, generate generic relevant tips
-    if not pro_tips:
-        question_lower = question.lower()
-
-        if "bom" in question_lower or "bill of materials" in question_lower:
-            pro_tips.append("Pro Tip: Use BOM filtering to show only the components relevant to your current task.")
-            pro_tips.append("Pro Tip: Enable BOM comparison to track changes between revisions.")
-        elif "workflow" in question_lower:
-            pro_tips.append("Pro Tip: Test workflows in a sandbox environment before deploying to production.")
-            pro_tips.append("Pro Tip: Use workflow notifications to keep team members informed of pending tasks.")
-        elif "lifecycle" in question_lower:
-            pro_tips.append("Pro Tip: Document your lifecycle state transitions for compliance and audit purposes.")
-        elif "search" in question_lower or "find" in question_lower:
-            pro_tips.append("Pro Tip: Save frequently used searches as personal or shared queries for quick access.")
-        elif "pdmlink" in question_lower:
-            pro_tips.append("Pro Tip: Use PDMLink's visualization capabilities to review 3D models without CAD software.")
-        else:
-            pro_tips.append("Pro Tip: Use keyboard shortcuts to speed up your workflow.")
-            pro_tips.append("Pro Tip: Check the Help Center for the latest documentation updates.")
-
+    # Only return tips that the LLM actually generated - no generic fallbacks
+    # This ensures tips are specific and relevant to the answer
     return pro_tips[:3], cleaned_answer  # Return max 3 tips
 
 
@@ -605,8 +676,9 @@ async def process_question(
     """Main function to process a question through the RAG pipeline"""
 
     # Step 1: Search for relevant documents (with optional topic and category filters)
+    # Retrieve 15 chunks for richer context
     context_docs = await search_similar_documents(
-        question, n_results=8, topic_filter=topic_filter, category=category
+        question, n_results=15, topic_filter=topic_filter, category=category
     )
 
     # Collect topics and categories used in context for frontend display
@@ -1019,8 +1091,8 @@ You MUST respond with valid JSON only, no other text. Use this exact format:
   "questions": [
     {
       "question": "What is the purpose of X in Windchill?",
-      "options": ["Option A (correct answer)", "Option B (wrong)", "Option C (wrong)", "Option D (wrong)"],
-      "correct_index": 0,
+      "options": ["To manage user permissions", "To track document versions", "To configure workflows", "To generate reports"],
+      "correct_index": 2,
       "explanation": "Brief explanation why this is correct, referencing the documentation",
       "question_type": "definition|procedure|concept|application",
       "difficulty": "basic|intermediate|advanced"
