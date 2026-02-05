@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=30">
+    <link rel="stylesheet" href="/static/css/styles.css?v=40">
 </head>
-<body>
+<body class="clean-slate">
     <!-- Header -->
     <header class="header">
         <div class="header-brand">
@@ -29,6 +29,11 @@
 
     <!-- Main Content -->
     <main class="main-content">
+        <!-- Sidebar Toggle Button (fixed position) -->
+        <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">
+            <span class="toggle-icon">◀</span>
+        </button>
+
         <!-- History Sidebar -->
         <aside class="history-sidebar" id="history-sidebar">
             <div class="sidebar-section">
@@ -43,18 +48,28 @@
             </div>
             <div class="sidebar-section">
                 <div class="sidebar-header">
-                    <h2>Courses</h2>
+                    <h2>Learning Journey</h2>
                     <button id="new-course-btn" class="btn btn-small btn-primary">+ New</button>
                 </div>
+                <!-- Achievement Badges -->
+                <div class="achievement-badges" id="achievement-badges" style="display: none;">
+                    <!-- Badges will be populated by JavaScript -->
+                </div>
                 <div class="course-list" id="course-list">
-                    <!-- Course items will be populated by JavaScript -->
-                    <p class="empty-state">No courses yet</p>
+                    <!-- Course roadmap will be populated by JavaScript -->
+                    <p class="empty-state">No learning journeys yet</p>
                 </div>
             </div>
         </aside>
 
         <!-- Main Panel -->
         <section class="main-panel">
+            <!-- Clean Slate Hero (shown on first load) -->
+            <div class="clean-slate-hero">
+                <h2>What would you like to learn?</h2>
+                <p>Ask anything about Windchill</p>
+            </div>
+
             <!-- Question Input -->
             <div class="question-card card">
                 <form id="question-form">
@@ -64,13 +79,6 @@
                             <select id="category-select">
                                 <option value="">All Categories</option>
                                 <!-- Categories will be populated by JavaScript -->
-                            </select>
-                        </div>
-                        <div class="filter-group">
-                            <label for="topic-select">Topic:</label>
-                            <select id="topic-select">
-                                <option value="">All Topics</option>
-                                <!-- Topics will be populated by JavaScript -->
                             </select>
                         </div>
                     </div>
@@ -91,6 +99,14 @@
                         </button>
                     </div>
                 </form>
+
+                <!-- AI Suggested Topics - Action Cards -->
+                <div class="ai-topic-suggestions" id="ai-topic-suggestions">
+                    <label>Start Exploring <span class="hint">(click to begin)</span></label>
+                    <div class="topic-suggestions-list" id="main-topic-suggestions">
+                        <span class="loading-text">Loading suggestions...</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Sample Questions (shown when no query) -->
@@ -400,6 +416,33 @@
         </div>
     </div>
 
+    <!-- Internal Login Modal -->
+    <div class="modal hidden" id="internal-login-modal">
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Internal PTC Login</h2>
+                <button class="modal-close" aria-label="Close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="login-description">Enter your PTC credentials to access internal documentation.</p>
+                <div class="setting-group">
+                    <label for="internal-username">Username</label>
+                    <input type="text" id="internal-username" placeholder="Enter username">
+                </div>
+                <div class="setting-group">
+                    <label for="internal-password">Password</label>
+                    <input type="password" id="internal-password" placeholder="Enter password">
+                </div>
+                <div id="login-error" class="login-error hidden"></div>
+                <div id="login-success" class="login-success hidden"></div>
+                <div class="login-actions">
+                    <button id="test-login-btn" class="btn btn-secondary">Test Login</button>
+                    <button id="save-credentials-btn" class="btn btn-primary">Save & Continue</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Image Lightbox Modal -->
     <div class="lightbox-modal hidden" id="lightbox-modal">
         <button class="lightbox-close" id="lightbox-close" aria-label="Close">&times;</button>
@@ -431,6 +474,13 @@
                             <option value="">All Sources</option>
                             <!-- Categories populated dynamically by JavaScript -->
                         </select>
+                    </div>
+                    <!-- Topic Suggestions -->
+                    <div class="topic-suggestions" id="topic-suggestions">
+                        <label>Suggested Topics <span class="hint">(click to select)</span></label>
+                        <div class="topic-suggestions-list" id="topic-suggestions-list">
+                            <span class="loading-text">Loading suggestions...</span>
+                        </div>
                     </div>
                     <div class="setting-group">
                         <label>Course Type</label>
@@ -474,41 +524,6 @@
         </div>
     </div>
 
-    <!-- Add Lessons Modal -->
-    <div class="modal hidden" id="add-lessons-modal">
-        <div class="modal-content modal-wide">
-            <div class="modal-header">
-                <h2>Add Lessons to: <span id="add-lessons-course-title"></span></h2>
-                <button class="modal-close" aria-label="Close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="search-section">
-                    <div class="search-row">
-                        <input type="text" id="page-search" placeholder="Search documentation pages...">
-                        <select id="page-search-category">
-                            <option value="">All Categories</option>
-                        </select>
-                        <button class="btn btn-primary" id="search-pages-btn">Search</button>
-                    </div>
-                </div>
-                <div class="search-results-section">
-                    <div class="search-results" id="page-search-results">
-                        <p class="empty-state">Search for pages to add as lessons</p>
-                    </div>
-                </div>
-                <div class="selected-lessons-section">
-                    <h4>Selected Lessons <span id="course-items-count">(0)</span></h4>
-                    <div class="course-items" id="course-items">
-                        <p class="empty-state">No lessons added yet</p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" id="done-adding-lessons-btn">Done</button>
-            </div>
-        </div>
-    </div>
-
     <!-- Course Viewer -->
     <div class="course-viewer hidden" id="course-viewer">
         <div class="course-viewer-header">
@@ -520,7 +535,6 @@
                 <p id="course-viewer-description" class="course-viewer-desc"></p>
             </div>
             <div class="course-header-right">
-                <button id="add-lessons-btn" class="btn btn-small btn-primary">+ Add Lessons</button>
                 <button id="delete-course-btn" class="btn btn-small btn-danger">Delete</button>
             </div>
         </div>
@@ -531,7 +545,6 @@
             </div>
             <div class="progress-info">
                 <span id="course-progress-text">0 of 0 complete</span>
-                <button id="resume-course-btn" class="btn btn-small btn-primary">Resume</button>
             </div>
         </div>
 
@@ -581,6 +594,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=47"></script>
+    <script src="/static/js/app.js?v=58"></script>
 </body>
 </html>

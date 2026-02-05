@@ -27,7 +27,6 @@ let settings = {
 let courses = [];
 let currentCourse = null;
 let currentLessonId = null;
-let courseItems = [];  // Items being edited in course builder
 let editingCourseId = null;  // Course ID being edited (null for new)
 let notesTimeout = null;  // Debounce timer for auto-save notes
 
@@ -55,7 +54,7 @@ const elements = {
     // Results
     sampleQuestions: document.getElementById('sample-questions'),
     resultsCard: document.getElementById('results-card'),
-    topicSelect: document.getElementById('topic-select'),
+    mainTopicSuggestions: document.getElementById('main-topic-suggestions'),
     loadingState: document.getElementById('loading-state'),
     answerDisplay: document.getElementById('answer-display'),
     answerText: document.getElementById('answer-text'),
@@ -81,7 +80,8 @@ const elements = {
     moreBtn: document.getElementById('more-btn'),
     retryBtn: document.getElementById('retry-btn'),
 
-    // History
+    // History & Sidebar
+    historySidebar: document.getElementById('history-sidebar'),
     historyList: document.getElementById('history-list'),
     clearHistoryBtn: document.getElementById('clear-history-btn'),
 
@@ -156,6 +156,15 @@ const elements = {
     confirmCancel: document.getElementById('confirm-cancel'),
     confirmOk: document.getElementById('confirm-ok'),
 
+    // Internal Login Modal
+    internalLoginModal: document.getElementById('internal-login-modal'),
+    internalUsername: document.getElementById('internal-username'),
+    internalPassword: document.getElementById('internal-password'),
+    testLoginBtn: document.getElementById('test-login-btn'),
+    saveCredentialsBtn: document.getElementById('save-credentials-btn'),
+    loginError: document.getElementById('login-error'),
+    loginSuccess: document.getElementById('login-success'),
+
     // Toast Container
     toastContainer: document.getElementById('toast-container'),
 
@@ -186,28 +195,16 @@ const elements = {
     generateCourseBtn: document.getElementById('generate-course-btn'),
     aiCourseForm: document.getElementById('ai-course-form'),
     aiGenerating: document.getElementById('ai-generating'),
-
-    // Add Lessons Modal
-    addLessonsModal: document.getElementById('add-lessons-modal'),
-    addLessonsCourseTitle: document.getElementById('add-lessons-course-title'),
-    pageSearch: document.getElementById('page-search'),
-    pageSearchCategory: document.getElementById('page-search-category'),
-    searchPagesBtn: document.getElementById('search-pages-btn'),
-    pageSearchResults: document.getElementById('page-search-results'),
-    courseItemsEl: document.getElementById('course-items'),
-    courseItemsCount: document.getElementById('course-items-count'),
-    doneAddingLessonsBtn: document.getElementById('done-adding-lessons-btn'),
+    topicSuggestionsList: document.getElementById('topic-suggestions-list'),
 
     // Course Viewer
     courseViewer: document.getElementById('course-viewer'),
     backToMainBtn: document.getElementById('back-to-main-btn'),
     courseViewerTitle: document.getElementById('course-viewer-title'),
     courseViewerDescription: document.getElementById('course-viewer-description'),
-    addLessonsBtn: document.getElementById('add-lessons-btn'),
     deleteCourseBtn: document.getElementById('delete-course-btn'),
     courseProgressText: document.getElementById('course-progress-text'),
     courseProgressFill: document.getElementById('course-progress-fill'),
-    resumeCourseBtn: document.getElementById('resume-course-btn'),
     lessonList: document.getElementById('lesson-list'),
     lessonContent: document.getElementById('lesson-content'),
     lessonNumber: document.getElementById('lesson-number'),
@@ -266,8 +263,11 @@ async function init() {
     // Load available models
     await loadModels();
 
-    // Load available topics for filtering
-    await loadTopics();
+    // Load AI-suggested topics for main screen
+    loadMainTopicSuggestions();
+
+    // Check if returning user (exit clean slate mode if so)
+    checkCleanSlateMode();
 
     // Setup event listeners
     setupEventListeners();
@@ -281,12 +281,27 @@ function setupEventListeners() {
         elements.questionInput.focus();
     });
 
+    // Exit clean slate on input focus
+    elements.questionInput.addEventListener('focus', exitCleanSlate);
+
+    // Sidebar toggle - always starts expanded, user can collapse during session
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    if (sidebarToggle) {
+        // Ensure sidebar starts expanded
+        elements.historySidebar.classList.remove('collapsed');
+
+        sidebarToggle.addEventListener('click', () => {
+            elements.historySidebar.classList.toggle('collapsed');
+        });
+    }
+
     // Category selector
     elements.categorySelect.addEventListener('change', handleCategoryChange);
 
     // Sample Questions
     document.querySelectorAll('.sample-btn').forEach(btn => {
         btn.addEventListener('click', () => {
+            exitCleanSlate();
             const category = btn.dataset.category;
             if (category) {
                 elements.categorySelect.value = category;
@@ -379,6 +394,22 @@ function setupEventListeners() {
     // Folder Browser
     elements.browserUpBtn.addEventListener('click', browserGoUp);
 
+    // Internal Login Modal
+    if (elements.testLoginBtn) {
+        elements.testLoginBtn.addEventListener('click', testInternalLogin);
+    }
+    if (elements.saveCredentialsBtn) {
+        elements.saveCredentialsBtn.addEventListener('click', saveInternalCredentials);
+    }
+    // Allow Enter key to submit login
+    if (elements.internalPassword) {
+        elements.internalPassword.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                saveInternalCredentials();
+            }
+        });
+    }
+
     // Modal Close Buttons
     document.querySelectorAll('.modal-close').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -453,9 +484,6 @@ function setupEventListeners() {
         elements.questionInput.classList.remove('input-error');
     });
 
-    // Topic filter change - re-run query with new filter
-    elements.topicSelect.addEventListener('change', handleTopicFilterChange);
-
     // Course event listeners
     if (elements.newCourseBtn) {
         console.log('Adding click listener to newCourseBtn');
@@ -480,30 +508,14 @@ function setupEventListeners() {
     if (elements.courseTypeLessons) {
         elements.courseTypeLessons.addEventListener('change', updateCourseTypeUI);
     }
-
-    // Add Lessons Modal
-    if (elements.searchPagesBtn) {
-        elements.searchPagesBtn.addEventListener('click', searchPages);
-    }
-    if (elements.pageSearch) {
-        elements.pageSearch.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') searchPages();
-        });
-    }
-    if (elements.doneAddingLessonsBtn) {
-        elements.doneAddingLessonsBtn.addEventListener('click', closeAddLessonsModal);
+    // Refresh topic suggestions when category changes
+    if (elements.courseCategory) {
+        elements.courseCategory.addEventListener('change', fetchTopicSuggestions);
     }
 
     // Course Viewer event listeners
     if (elements.backToMainBtn) {
         elements.backToMainBtn.addEventListener('click', closeCourseViewer);
-    }
-    if (elements.addLessonsBtn) {
-        elements.addLessonsBtn.addEventListener('click', () => {
-            if (currentCourse) {
-                showAddLessonsModal();
-            }
-        });
     }
     if (elements.deleteCourseBtn) {
         elements.deleteCourseBtn.addEventListener('click', () => {
@@ -518,9 +530,6 @@ function setupEventListeners() {
                 );
             }
         });
-    }
-    if (elements.resumeCourseBtn) {
-        elements.resumeCourseBtn.addEventListener('click', resumeCourse);
     }
     if (elements.prevLessonBtn) {
         elements.prevLessonBtn.addEventListener('click', () => navigateLesson(-1));
@@ -675,6 +684,9 @@ async function handleQuestionSubmit(e) {
     // Set submission flag immediately to prevent double-clicks
     isSubmitting = true;
 
+    // Exit clean slate mode on first question
+    exitCleanSlate();
+
     // Clear error state on successful validation
     elements.questionInput.classList.remove('input-error');
 
@@ -697,6 +709,11 @@ async function handleQuestionSubmit(e) {
         updateTopicFilterStatus(data.topic_filter_applied);
         await loadHistory();
         elements.questionInput.value = '';
+
+        // Track questions for badges
+        const questionsAsked = parseInt(localStorage.getItem('questionsAsked') || '0') + 1;
+        localStorage.setItem('questionsAsked', questionsAsked.toString());
+        checkBadgeEligibility();
     } catch (error) {
         showError(error.message);
     } finally {
@@ -711,12 +728,13 @@ async function rerunQuery() {
     showLoading();
 
     try {
-        // Get topic filter if selected
+        // Get topic filter and category if selected
         const topicFilter = getSelectedTopicFilter();
+        const category = getSelectedCategory();
 
         const data = await apiRequest(`/questions/${currentQuestionId}/rerun`, {
             method: 'POST',
-            body: JSON.stringify({ topic_filter: topicFilter })
+            body: JSON.stringify({ topic_filter: topicFilter, category })
         });
 
         currentSources = data.source_links || [];
@@ -736,6 +754,144 @@ function showLoading() {
     elements.submitBtn.disabled = true;
 }
 
+// Procedure Tracker - detect and parse procedural steps
+function detectProceduralSteps(text) {
+    const lines = text.split('\n');
+    const steps = [];
+    let currentStep = null;
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        // Match numbered steps like "1." or "1)" or "Step 1:"
+        const stepMatch = trimmed.match(/^(?:Step\s+)?(\d+)[.):]\s*(.+)$/i);
+
+        if (stepMatch) {
+            if (currentStep) {
+                steps.push(currentStep);
+            }
+            currentStep = {
+                number: parseInt(stepMatch[1]),
+                text: stepMatch[2].replace(/\*\*/g, ''), // Remove bold markers
+                details: ''
+            };
+        } else if (currentStep && trimmed && !trimmed.match(/^[-•]/)) {
+            // Add as detail to current step
+            currentStep.details += (currentStep.details ? ' ' : '') + trimmed;
+        }
+    }
+
+    if (currentStep) {
+        steps.push(currentStep);
+    }
+
+    // Only return if we have 3+ ordered steps
+    return steps.length >= 3 ? steps : null;
+}
+
+function createProcedureTracker(steps, questionId) {
+    const trackerId = `procedure-${questionId}`;
+    const savedProgress = JSON.parse(localStorage.getItem(trackerId) || '{}');
+
+    const completedCount = Object.values(savedProgress).filter(Boolean).length;
+    const progressPercent = Math.round((completedCount / steps.length) * 100);
+
+    const stepsHtml = steps.map((step, index) => {
+        const isCompleted = savedProgress[index] === true;
+        return `
+            <div class="procedure-step ${isCompleted ? 'completed' : ''}" data-index="${index}">
+                <div class="step-checkbox" title="Mark as complete">
+                    ${isCompleted ? '✓' : ''}
+                </div>
+                <div class="step-number">${step.number}</div>
+                <div class="step-content">
+                    <div class="step-text">${escapeHtml(step.text)}</div>
+                    ${step.details ? `<button class="step-expand">Show details</button><div class="step-details">${escapeHtml(step.details)}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="procedure-tracker" id="${trackerId}" data-question-id="${questionId}">
+            <div class="procedure-header">
+                <h4>📋 Procedure Tracker</h4>
+                <div class="procedure-progress">
+                    <span class="progress-text">${completedCount} of ${steps.length}</span>
+                    <div class="procedure-progress-bar">
+                        <div class="procedure-progress-fill" style="width: ${progressPercent}%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="procedure-steps">
+                ${stepsHtml}
+            </div>
+            ${completedCount === steps.length ? `
+                <div class="procedure-complete">
+                    <h4>🎉 All steps completed!</h4>
+                    <p>Great job finishing this procedure.</p>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+function initProcedureTracker(container) {
+    const tracker = container.querySelector('.procedure-tracker');
+    if (!tracker) return;
+
+    const questionId = tracker.dataset.questionId;
+    const trackerId = tracker.id;
+
+    // Handle step checkbox clicks
+    tracker.querySelectorAll('.step-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('click', () => {
+            const step = checkbox.closest('.procedure-step');
+            const index = parseInt(step.dataset.index);
+
+            // Toggle completion
+            step.classList.toggle('completed');
+            const isCompleted = step.classList.contains('completed');
+            checkbox.innerHTML = isCompleted ? '✓' : '';
+
+            // Save progress
+            const savedProgress = JSON.parse(localStorage.getItem(trackerId) || '{}');
+            savedProgress[index] = isCompleted;
+            localStorage.setItem(trackerId, JSON.stringify(savedProgress));
+
+            // Update progress display
+            const steps = tracker.querySelectorAll('.procedure-step');
+            const completedCount = tracker.querySelectorAll('.procedure-step.completed').length;
+            const progressPercent = Math.round((completedCount / steps.length) * 100);
+
+            tracker.querySelector('.progress-text').textContent = `${completedCount} of ${steps.length}`;
+            tracker.querySelector('.procedure-progress-fill').style.width = `${progressPercent}%`;
+
+            // Show/hide completion message
+            let completeMsg = tracker.querySelector('.procedure-complete');
+            if (completedCount === steps.length && !completeMsg) {
+                const stepsContainer = tracker.querySelector('.procedure-steps');
+                stepsContainer.insertAdjacentHTML('afterend', `
+                    <div class="procedure-complete">
+                        <h4>🎉 All steps completed!</h4>
+                        <p>Great job finishing this procedure.</p>
+                    </div>
+                `);
+            } else if (completedCount < steps.length && completeMsg) {
+                completeMsg.remove();
+            }
+        });
+    });
+
+    // Handle expand details
+    tracker.querySelectorAll('.step-expand').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const details = btn.nextElementSibling;
+            details.classList.toggle('expanded');
+            btn.textContent = details.classList.contains('expanded') ? 'Hide details' : 'Show details';
+        });
+    });
+}
+
 function displayAnswer(data, questionText = null) {
     // Stop any ongoing speech when showing new answer
     stopSpeech();
@@ -753,7 +909,22 @@ function displayAnswer(data, questionText = null) {
         elements.questionTextDisplay.textContent = currentQuestionText;
     }
 
-    elements.answerText.innerHTML = formatAnswer(data.answer_text);
+    // Check for procedural content
+    const steps = detectProceduralSteps(data.answer_text);
+    let answerHtml = formatAnswer(data.answer_text);
+
+    if (steps && currentQuestionId) {
+        // Add procedure tracker before the formatted answer
+        const trackerHtml = createProcedureTracker(steps, currentQuestionId);
+        answerHtml = trackerHtml + '<div class="answer-text-content">' + answerHtml + '</div>';
+    }
+
+    elements.answerText.innerHTML = answerHtml;
+
+    // Initialize procedure tracker if present
+    if (steps) {
+        initProcedureTracker(elements.answerText);
+    }
 
     // Display pro tips
     if (data.pro_tips && data.pro_tips.length > 0) {
@@ -1594,11 +1765,155 @@ async function checkScraperStatus() {
     }
 }
 
-function startScrape() {
+// Check if a category requires authentication
+function categoryRequiresAuth(category) {
+    // "internal" type categories require authentication
+    const catInfo = categories[category];
+    // Check if the category info indicates it's internal type
+    // The backend marks internal categories with type: "internal"
+    return category === 'internal' || (catInfo && catInfo.type === 'internal');
+}
+
+// Check if credentials are configured
+async function checkCredentialsStatus() {
+    try {
+        const response = await apiRequest('/scraper/credentials-status');
+        return response.configured;
+    } catch (error) {
+        console.error('Failed to check credentials status:', error);
+        return false;
+    }
+}
+
+// Store pending scrape action to resume after login
+let pendingScrapeAction = null;
+
+// Show the internal login modal
+function showInternalLoginModal() {
+    // Clear previous values and messages
+    elements.internalUsername.value = '';
+    elements.internalPassword.value = '';
+    elements.loginError.classList.add('hidden');
+    elements.loginSuccess.classList.add('hidden');
+    elements.loginError.textContent = '';
+    elements.loginSuccess.textContent = '';
+
+    // Show modal
+    showModal(elements.internalLoginModal);
+
+    // Focus username field
+    setTimeout(() => elements.internalUsername.focus(), 100);
+}
+
+// Test internal login credentials
+async function testInternalLogin() {
+    const username = elements.internalUsername.value.trim();
+    const password = elements.internalPassword.value;
+
+    if (!username || !password) {
+        elements.loginError.textContent = 'Please enter both username and password.';
+        elements.loginError.classList.remove('hidden');
+        elements.loginSuccess.classList.add('hidden');
+        return;
+    }
+
+    // Show loading state
+    elements.testLoginBtn.disabled = true;
+    elements.testLoginBtn.textContent = 'Testing...';
+    elements.loginError.classList.add('hidden');
+    elements.loginSuccess.classList.add('hidden');
+
+    try {
+        const result = await apiRequest('/scraper/test-login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+
+        if (result.authenticated) {
+            elements.loginSuccess.textContent = 'Login successful! Credentials are valid.';
+            elements.loginSuccess.classList.remove('hidden');
+        } else {
+            elements.loginError.textContent = result.message || 'Login failed. Please check your credentials.';
+            elements.loginError.classList.remove('hidden');
+        }
+    } catch (error) {
+        elements.loginError.textContent = 'Failed to test login. Please try again.';
+        elements.loginError.classList.remove('hidden');
+    } finally {
+        elements.testLoginBtn.disabled = false;
+        elements.testLoginBtn.textContent = 'Test Login';
+    }
+}
+
+// Save internal credentials and continue with scrape
+async function saveInternalCredentials() {
+    const username = elements.internalUsername.value.trim();
+    const password = elements.internalPassword.value;
+
+    if (!username || !password) {
+        elements.loginError.textContent = 'Please enter both username and password.';
+        elements.loginError.classList.remove('hidden');
+        elements.loginSuccess.classList.add('hidden');
+        return;
+    }
+
+    // Show loading state
+    elements.saveCredentialsBtn.disabled = true;
+    elements.saveCredentialsBtn.textContent = 'Saving...';
+    elements.loginError.classList.add('hidden');
+    elements.loginSuccess.classList.add('hidden');
+
+    try {
+        const result = await apiRequest('/scraper/set-credentials', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+        });
+
+        if (result.saved) {
+            // Close modal
+            elements.internalLoginModal.classList.add('hidden');
+            showToast('Credentials saved successfully', 'success');
+
+            // Continue with pending scrape if any
+            if (pendingScrapeAction) {
+                const action = pendingScrapeAction;
+                pendingScrapeAction = null;
+                action();
+            }
+        } else {
+            elements.loginError.textContent = result.message || 'Failed to save credentials.';
+            elements.loginError.classList.remove('hidden');
+        }
+    } catch (error) {
+        elements.loginError.textContent = 'Failed to save credentials. Please try again.';
+        elements.loginError.classList.remove('hidden');
+    } finally {
+        elements.saveCredentialsBtn.disabled = false;
+        elements.saveCredentialsBtn.textContent = 'Save & Continue';
+    }
+}
+
+async function startScrape() {
     const category = elements.scrapeCategorySelect.value;
     const maxPages = parseInt(elements.scrapeMaxPages.value) || 1500;
     const catName = categories[category]?.name || category;
 
+    // Check if this category requires authentication
+    if (categoryRequiresAuth(category)) {
+        const isConfigured = await checkCredentialsStatus();
+        if (!isConfigured) {
+            // Store the scrape action to resume after login
+            pendingScrapeAction = () => performScrape(category, maxPages, catName);
+            showInternalLoginModal();
+            return;
+        }
+    }
+
+    // Proceed with scrape confirmation
+    performScrape(category, maxPages, catName);
+}
+
+function performScrape(category, maxPages, catName) {
     showConfirm(
         'Start Scrape',
         `Start scraping "${catName}" (up to ${maxPages} pages)? This may take a while.`,
@@ -2076,30 +2391,119 @@ async function loadModels() {
     }
 }
 
-// Topics Functions
-async function loadTopics(category = null) {
+// Action card type detection based on topic content
+function getActionCardType(topic) {
+    const lowerTopic = topic.toLowerCase();
+
+    // Challenge: quizzes, validation, verification
+    if (/validat|verif|check|test|quiz|exercise/.test(lowerTopic)) {
+        return { type: 'challenge', icon: '⚡', verb: 'Challenge' };
+    }
+
+    // Practice: procedures, how-to, steps
+    if (/how to|create|configur|setup|set up|implement|build|steps/.test(lowerTopic)) {
+        return { type: 'practice', icon: '🛠️', verb: 'Practice' };
+    }
+
+    // Explore: structures, architecture, deep-dive
+    if (/structur|architect|overview|explor|analyz|investigat/.test(lowerTopic)) {
+        return { type: 'explore', icon: '🔍', verb: 'Explore' };
+    }
+
+    // Default to Learn
+    return { type: 'learn', icon: '📖', verb: 'Learn' };
+}
+
+// Format topic text for action cards
+function formatActionCardTitle(topic, actionType) {
+    // Remove common prefixes
+    let title = topic
+        .replace(/^(understanding|what is|how to|overview of|introduction to)\s*/i, '')
+        .trim();
+
+    // Capitalize first letter
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+
+    return title;
+}
+
+// Default fallback suggestions (shown immediately, replaced by AI if available)
+const defaultSuggestions = [
+    { topic: 'BOM management in Windchill', description: 'Learn how to create and manage Bills of Materials' },
+    { topic: 'How to create workflows', description: 'Set up automated processes and approvals' },
+    { topic: 'Part versioning and revisions', description: 'Understand version control for parts' },
+    { topic: 'Change management process', description: 'Handle engineering changes effectively' },
+    { topic: 'Document management basics', description: 'Organize and control documents' },
+    { topic: 'Search and navigation tips', description: 'Find information quickly in Windchill' }
+];
+
+// Render action cards from suggestions array
+function renderActionCards(container, suggestions) {
+    container.innerHTML = suggestions.map(s => {
+        const action = getActionCardType(s.topic);
+        const title = formatActionCardTitle(s.topic, action);
+        return `
+            <button type="button" class="action-card"
+                    data-type="${action.type}"
+                    data-topic="${escapeHtml(s.topic)}"
+                    title="${escapeHtml(s.description || '')}">
+                <span class="action-card-type">
+                    ${action.icon} ${action.verb}
+                </span>
+                <span class="action-card-title">${escapeHtml(title)}</span>
+            </button>
+        `;
+    }).join('');
+
+    // Add click handlers
+    container.querySelectorAll('.action-card').forEach(card => {
+        card.addEventListener('click', () => {
+            exitCleanSlate();
+            const topic = card.dataset.topic;
+            elements.questionInput.value = `Tell me about ${topic}`;
+            elements.questionInput.focus();
+        });
+    });
+}
+
+// Load AI-suggested topics for the main ask screen
+async function loadMainTopicSuggestions(category = null) {
+    const container = elements.mainTopicSuggestions;
+    if (!container) return;
+
+    // Show fallback suggestions immediately (don't make user wait)
+    renderActionCards(container, defaultSuggestions);
+
+    // Try to load AI suggestions in background (with timeout)
     try {
-        // Build URL with optional category parameter
-        const url = category ? `/topics?category=${encodeURIComponent(category)}` : '/topics';
-        const data = await apiRequest(url);
-        if (data.topics && data.topics.length > 0) {
-            // Keep the "All Topics" option and add the rest
-            elements.topicSelect.innerHTML = '<option value="">All Topics</option>' +
-                data.topics.map(topic =>
-                    `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`
-                ).join('');
-        } else {
-            elements.topicSelect.innerHTML = '<option value="">All Topics</option>';
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 second timeout
+
+        const url = category
+            ? `/topics/suggest?category=${encodeURIComponent(category)}&limit=6`
+            : '/topics/suggest?limit=6';
+
+        const response = await fetch(`/api${url}`, {
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.suggestions?.length > 0) {
+                // Replace fallback with AI suggestions
+                renderActionCards(container, data.suggestions);
+            }
         }
     } catch (error) {
-        console.error('Failed to load topics:', error);
-        // Keep default option if topics can't be loaded
-        elements.topicSelect.innerHTML = '<option value="">All Topics</option>';
+        // Silently fail - fallback suggestions are already shown
+        console.log('AI suggestions unavailable, using defaults');
     }
 }
 
 function getSelectedTopicFilter() {
-    return elements.topicSelect.value || null;
+    // Topic dropdown removed - always use all topics (AI suggestions handle discovery)
+    return null;
 }
 
 function updateTopicFilterStatus(topicApplied) {
@@ -2195,8 +2599,8 @@ async function handleCategoryChange() {
         elements.questionInput.placeholder = 'Ask a question...';
     }
 
-    // Reload topics for the selected category
-    await loadTopics(category);
+    // Reload AI-suggested topics for the selected category
+    loadMainTopicSuggestions(category);
 }
 
 function updateSampleQuestions() {
@@ -2223,6 +2627,22 @@ function showConfirm(title, message, callback) {
     elements.confirmMessage.textContent = message;
     confirmCallback = callback;
     showModal(elements.confirmModal);
+}
+
+// Clean Slate Mode - Progressive Disclosure
+function exitCleanSlate() {
+    if (document.body.classList.contains('clean-slate')) {
+        document.body.classList.remove('clean-slate');
+        localStorage.setItem('hasUsedApp', 'true');
+    }
+}
+
+function checkCleanSlateMode() {
+    // Keep clean slate for new users, exit for returning users with history
+    const hasUsed = localStorage.getItem('hasUsedApp');
+    if (hasUsed === 'true') {
+        document.body.classList.remove('clean-slate');
+    }
 }
 
 function showToast(message, type = 'success') {
@@ -2370,50 +2790,136 @@ async function loadCourses() {
     }
 }
 
-// Render course list in sidebar
-function renderCourseList() {
-    if (!elements.courseList) return;
+// Badge system
+function getBadges() {
+    const badges = JSON.parse(localStorage.getItem('userBadges') || '{}');
+    return badges;
+}
 
-    if (courses.length === 0) {
-        elements.courseList.innerHTML = '<p class="empty-state">No courses yet</p>';
+function awardBadge(badgeId, badgeName, badgeIcon) {
+    const badges = getBadges();
+    if (!badges[badgeId]) {
+        badges[badgeId] = {
+            name: badgeName,
+            icon: badgeIcon,
+            earned: new Date().toISOString()
+        };
+        localStorage.setItem('userBadges', JSON.stringify(badges));
+        showToast(`🏆 Badge earned: ${badgeName}!`, 'success');
+        renderBadges();
+    }
+}
+
+function checkBadgeEligibility() {
+    const badges = getBadges();
+    const questionsAsked = parseInt(localStorage.getItem('questionsAsked') || '0');
+    const coursesCompleted = courses.filter(c => c.progress === 100).length;
+    const totalCourses = courses.length;
+
+    // First Steps - Complete any course section
+    if (!badges['first-steps'] && courses.some(c => c.completed_items > 0)) {
+        awardBadge('first-steps', 'First Steps', '🌱');
+    }
+
+    // Knowledge Seeker - Ask 10 questions
+    if (!badges['knowledge-seeker'] && questionsAsked >= 10) {
+        awardBadge('knowledge-seeker', 'Knowledge Seeker', '🔍');
+    }
+
+    // Course Master - Complete any course
+    if (!badges['course-master'] && coursesCompleted >= 1) {
+        awardBadge('course-master', 'Course Master', '🎓');
+    }
+
+    // Scholar - Complete 3 courses
+    if (!badges['scholar'] && coursesCompleted >= 3) {
+        awardBadge('scholar', 'Scholar', '📚');
+    }
+
+    // Dedicated Learner - Create 5+ courses
+    if (!badges['dedicated-learner'] && totalCourses >= 5) {
+        awardBadge('dedicated-learner', 'Dedicated Learner', '⭐');
+    }
+}
+
+function renderBadges() {
+    const badgesContainer = document.getElementById('achievement-badges');
+    if (!badgesContainer) return;
+
+    const badges = getBadges();
+    const badgesList = Object.values(badges);
+
+    if (badgesList.length === 0) {
+        badgesContainer.innerHTML = '';
+        badgesContainer.style.display = 'none';
         return;
     }
 
-    elements.courseList.innerHTML = courses.map(course => `
-        <div class="course-item ${currentCourse && currentCourse.id === course.id ? 'active' : ''}"
-             data-id="${course.id}"
-             title="${escapeHtml(course.title)} - ${course.completed_items}/${course.total_items} complete">
-            <div class="course-item-content">
-                <div class="course-item-title">${escapeHtml(course.title)}</div>
-                <div class="progress-mini">
-                    <div class="progress-mini-fill" style="width: ${course.progress}%"></div>
-                </div>
-            </div>
-            <button class="course-delete-btn" data-id="${course.id}" title="Delete course">&times;</button>
-        </div>
+    badgesContainer.style.display = 'flex';
+    badgesContainer.innerHTML = badgesList.map(badge => `
+        <span class="badge earned" title="Earned: ${new Date(badge.earned).toLocaleDateString()}">
+            <span class="badge-icon">${badge.icon}</span>
+            ${badge.name}
+        </span>
     `).join('');
+}
 
-    // Add click handlers for opening courses
-    elements.courseList.querySelectorAll('.course-item-content').forEach(item => {
-        item.addEventListener('click', () => {
-            const courseId = parseInt(item.parentElement.dataset.id);
+// Render course list in sidebar as roadmap
+function renderCourseList() {
+    if (!elements.courseList) return;
+
+    // Render badges first
+    renderBadges();
+    checkBadgeEligibility();
+
+    if (courses.length === 0) {
+        elements.courseList.innerHTML = '<p class="empty-state">No learning journeys yet.<br><small>Create a course to start!</small></p>';
+        return;
+    }
+
+    // Render as roadmap
+    elements.courseList.innerHTML = `
+        <div class="course-roadmap">
+            ${courses.map((course, index) => {
+                const isActive = currentCourse && currentCourse.id === course.id;
+                const isCompleted = course.progress === 100;
+                const isCurrent = !isCompleted && course.progress > 0;
+
+                // For now, no locking - all courses accessible
+                const nodeClass = [
+                    'roadmap-node',
+                    isActive ? 'active' : '',
+                    isCompleted ? 'completed' : '',
+                    isCurrent ? 'current' : ''
+                ].filter(Boolean).join(' ');
+
+                const statusText = isCompleted
+                    ? 'Completed'
+                    : course.progress > 0
+                        ? `${course.completed_items}/${course.total_items} done`
+                        : 'Not started';
+
+                return `
+                    <div class="${nodeClass}" data-id="${course.id}" title="${escapeHtml(course.title)}">
+                        <div class="node-connector"></div>
+                        <div class="node-circle">
+                            ${isCompleted ? '✓' : (index + 1)}
+                        </div>
+                        <div class="node-content">
+                            <div class="node-title">${escapeHtml(course.title)}</div>
+                            <div class="node-status">${statusText}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+
+    // Add click handlers for roadmap nodes
+    elements.courseList.querySelectorAll('.roadmap-node:not(.locked)').forEach(node => {
+        node.addEventListener('click', () => {
+            const courseId = parseInt(node.dataset.id);
             openCourse(courseId);
-        });
-    });
-
-    // Add click handlers for delete buttons
-    elements.courseList.querySelectorAll('.course-delete-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const courseId = parseInt(btn.dataset.id);
-            const course = courses.find(c => c.id === courseId);
-            showConfirm(
-                'Delete Course',
-                `Are you sure you want to delete "${course.title}"? This cannot be undone.`,
-                async () => {
-                    await deleteCourse(courseId);
-                }
-            );
         });
     });
 }
@@ -2458,9 +2964,49 @@ function showCourseModal() {
     if (elements.courseModal) {
         showModal(elements.courseModal);
         console.log('Modal shown');
+        // Fetch topic suggestions when modal opens
+        fetchTopicSuggestions();
     } else {
         console.error('courseModal element not found!');
         alert('Error: Course modal not found. Please refresh the page.');
+    }
+}
+
+// Fetch AI-generated topic suggestions
+async function fetchTopicSuggestions() {
+    const container = elements.topicSuggestionsList;
+    if (!container) return;
+
+    container.innerHTML = '<span class="loading-text">Loading suggestions...</span>';
+
+    try {
+        const category = elements.courseCategory?.value || '';
+        const response = await apiRequest(`/topics/suggest?category=${encodeURIComponent(category)}&limit=8`);
+
+        if (response.suggestions?.length > 0) {
+            container.innerHTML = response.suggestions.map(s => `
+                <button type="button" class="topic-chip"
+                        data-topic="${escapeHtml(s.topic)}"
+                        title="${escapeHtml(s.description || '')}">
+                    ${escapeHtml(s.topic)}
+                </button>
+            `).join('');
+
+            // Add click handlers to chips
+            container.querySelectorAll('.topic-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    if (elements.courseTopic) {
+                        elements.courseTopic.value = chip.dataset.topic;
+                        elements.courseTopic.focus();
+                    }
+                });
+            });
+        } else {
+            container.innerHTML = '<span class="loading-text">No suggestions available</span>';
+        }
+    } catch (error) {
+        console.error('Failed to fetch topic suggestions:', error);
+        container.innerHTML = '<span class="loading-text">Could not load suggestions</span>';
     }
 }
 
@@ -2572,243 +3118,6 @@ async function generateAICourse() {
     }
 }
 
-// Show Add Lessons modal
-function showAddLessonsModal() {
-    if (!currentCourse) return;
-
-    // Reset state
-    courseItems = currentCourse.items ? currentCourse.items.map(item => ({
-        id: item.id,
-        page_id: item.page_id,
-        title: item.page_title
-    })) : [];
-
-    // Update title
-    if (elements.addLessonsCourseTitle) {
-        elements.addLessonsCourseTitle.textContent = currentCourse.title;
-    }
-
-    // Populate category dropdown
-    if (elements.pageSearchCategory) {
-        const categoryOptions = Object.entries(categories).map(([key, cat]) =>
-            `<option value="${escapeHtml(key)}">${escapeHtml(cat.name)}</option>`
-        ).join('');
-        elements.pageSearchCategory.innerHTML = '<option value="">All Categories</option>' + categoryOptions;
-    }
-
-    // Clear search and auto-load all pages
-    if (elements.pageSearch) {
-        elements.pageSearch.value = '';
-    }
-
-    renderCourseItems();
-    showModal(elements.addLessonsModal);
-
-    // Auto-search to show all available pages
-    searchPages();
-}
-
-// Close Add Lessons modal and save changes
-async function closeAddLessonsModal() {
-    if (!currentCourse) {
-        elements.addLessonsModal.classList.add('hidden');
-        return;
-    }
-
-    try {
-        // Get current items from server
-        const serverCourse = await apiRequest(`/courses/${currentCourse.id}`);
-        const serverItemIds = serverCourse.items.map(i => i.id);
-        const localItemIds = courseItems.filter(i => i.id).map(i => i.id);
-
-        // Remove items no longer in list
-        for (const itemId of serverItemIds) {
-            if (!localItemIds.includes(itemId)) {
-                await apiRequest(`/courses/${currentCourse.id}/items/${itemId}`, { method: 'DELETE' });
-            }
-        }
-
-        // Add new items
-        for (const item of courseItems) {
-            if (!item.id) {
-                await apiRequest(`/courses/${currentCourse.id}/items`, {
-                    method: 'POST',
-                    body: JSON.stringify({ page_id: item.page_id })
-                });
-            }
-        }
-
-        elements.addLessonsModal.classList.add('hidden');
-
-        // Refresh course
-        await openCourse(currentCourse.id);
-        await loadCourses();
-    } catch (error) {
-        console.error('Failed to save lessons:', error);
-        showToast('Failed to save lessons', 'error');
-    }
-}
-
-// Render course items in Add Lessons modal
-function renderCourseItems() {
-    if (!elements.courseItemsEl) return;
-
-    if (elements.courseItemsCount) {
-        elements.courseItemsCount.textContent = `(${courseItems.length})`;
-    }
-
-    if (courseItems.length === 0) {
-        elements.courseItemsEl.innerHTML = '<p class="empty-state">No lessons added yet</p>';
-        return;
-    }
-
-    elements.courseItemsEl.innerHTML = courseItems.map((item, index) => `
-        <div class="course-item-row" data-index="${index}">
-            <span class="drag-handle">⋮⋮</span>
-            <span class="item-position">${index + 1}</span>
-            <span class="item-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</span>
-            <button class="remove-item-btn" data-index="${index}" title="Remove">×</button>
-        </div>
-    `).join('');
-
-    // Add remove handlers
-    elements.courseItemsEl.querySelectorAll('.remove-item-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const index = parseInt(btn.dataset.index);
-            courseItems.splice(index, 1);
-            renderCourseItems();
-        });
-    });
-
-    // Make items draggable
-    makeDraggable(elements.courseItemsEl);
-}
-
-// Simple drag-to-reorder
-function makeDraggable(container) {
-    let draggedItem = null;
-
-    container.querySelectorAll('.course-item-row').forEach(item => {
-        item.draggable = true;
-
-        item.addEventListener('dragstart', () => {
-            draggedItem = item;
-            item.style.opacity = '0.5';
-        });
-
-        item.addEventListener('dragend', () => {
-            item.style.opacity = '1';
-            draggedItem = null;
-        });
-
-        item.addEventListener('dragover', (e) => {
-            e.preventDefault();
-        });
-
-        item.addEventListener('drop', (e) => {
-            e.preventDefault();
-            if (draggedItem && draggedItem !== item) {
-                const fromIndex = parseInt(draggedItem.dataset.index);
-                const toIndex = parseInt(item.dataset.index);
-                const moved = courseItems.splice(fromIndex, 1)[0];
-                courseItems.splice(toIndex, 0, moved);
-                renderCourseItems();
-            }
-        });
-    });
-}
-
-// Search pages for adding to course
-async function searchPages() {
-    const query = elements.pageSearch ? elements.pageSearch.value.trim() : '';
-    const category = elements.pageSearchCategory ? elements.pageSearchCategory.value : '';
-
-    try {
-        let url = `/pages/search?limit=200`;
-        if (query) url += `&q=${encodeURIComponent(query)}`;
-        if (category) url += `&category=${encodeURIComponent(category)}`;
-
-        const data = await apiRequest(url);
-        const pages = data.pages || [];
-
-        if (pages.length === 0) {
-            elements.pageSearchResults.innerHTML = '<p class="empty-state">No pages found</p>';
-            return;
-        }
-
-        // Filter out already-added pages
-        const addedIds = courseItems.map(i => i.page_id);
-        const availablePages = pages.filter(p => !addedIds.includes(p.id));
-
-        if (availablePages.length === 0) {
-            elements.pageSearchResults.innerHTML = '<p class="empty-state">All matching pages already added</p>';
-            return;
-        }
-
-        elements.pageSearchResults.innerHTML = availablePages.map(page => `
-            <div class="search-result-item" data-id="${page.id}" data-title="${escapeHtml(page.title || 'Untitled')}" data-url="${escapeHtml(page.url || '')}">
-                <div class="search-result-info">
-                    <span class="search-result-title">${escapeHtml(page.title || 'Untitled')}</span>
-                    <span class="search-result-category">${escapeHtml(page.category || '')}</span>
-                </div>
-                <div class="search-result-actions">
-                    <button class="btn btn-small view-page-btn" title="View document">View</button>
-                    <button class="btn btn-small btn-secondary summarize-page-btn" title="AI Summary">Summarize</button>
-                    <button class="btn btn-small btn-primary add-page-btn">+ Add</button>
-                </div>
-            </div>
-        `).join('');
-
-        // Add click handlers
-        elements.pageSearchResults.querySelectorAll('.add-page-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const item = btn.closest('.search-result-item');
-                const pageId = parseInt(item.dataset.id);
-                const title = item.dataset.title;
-                addPageToCourse(pageId, title);
-            });
-        });
-
-        // View page handlers
-        elements.pageSearchResults.querySelectorAll('.view-page-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const item = btn.closest('.search-result-item');
-                const url = item.dataset.url;
-                if (url) viewLocalDocument(url);
-            });
-        });
-
-        // Summarize page handlers
-        elements.pageSearchResults.querySelectorAll('.summarize-page-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const item = btn.closest('.search-result-item');
-                const pageId = parseInt(item.dataset.id);
-                quickSummarizeById(pageId, btn);
-            });
-        });
-    } catch (error) {
-        console.error('Search failed:', error);
-        if (elements.pageSearchResults) {
-            elements.pageSearchResults.innerHTML = '<p class="empty-state">Search failed</p>';
-        }
-    }
-}
-
-// Add page to course items
-function addPageToCourse(pageId, title) {
-    courseItems.push({
-        page_id: pageId,
-        title: title
-    });
-    renderCourseItems();
-    searchPages();  // Refresh search to hide added item
-    showToast(`Added: ${title}`, 'success');
-}
-
 // Delete course
 async function deleteCourse(courseId) {
     try {
@@ -2904,8 +3213,7 @@ function renderLessonList(course) {
     if (!course.items || course.items.length === 0) {
         elements.lessonList.innerHTML = `
             <div class="empty-state" style="padding: 40px; text-align: center;">
-                <p>No lessons yet</p>
-                <button class="btn btn-primary" onclick="showAddLessonsModal()" style="margin-top: 16px;">+ Add Lessons</button>
+                <p>No lessons yet. Create a new course to get started.</p>
             </div>
         `;
         return;
@@ -3864,26 +4172,6 @@ async function setResumePosition(itemId) {
         console.error('Failed to set resume position:', error);
     }
 }
-
-// Resume course
-function resumeCourse() {
-    if (!currentCourse) return;
-
-    if (currentCourse.current_item_id) {
-        openLesson(currentCourse.current_item_id);
-    } else if (currentCourse.items && currentCourse.items.length > 0) {
-        // Find first incomplete item
-        const firstIncomplete = currentCourse.items.find(i => !i.completed);
-        if (firstIncomplete) {
-            openLesson(firstIncomplete.id);
-        } else {
-            openLesson(currentCourse.items[0].id);
-        }
-    }
-}
-
-// Make showAddLessonsModal globally accessible
-window.showAddLessonsModal = showAddLessonsModal;
 
 // ==================== Documents Modal ====================
 
