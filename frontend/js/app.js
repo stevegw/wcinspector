@@ -114,10 +114,11 @@ const elements = {
     docsCategoryFilter: document.getElementById('docs-category-filter'),
     docsCount: document.getElementById('docs-count'),
 
+    // Admin Button (header)
+    adminBtn: document.getElementById('admin-btn'),
+
     // Scraper Modal
-    scraperBtn: document.getElementById('scraper-btn'),
     scraperModal: document.getElementById('scraper-modal'),
-    scraperStatusText: document.getElementById('scraper-status-text'),
     pagesCount: document.getElementById('pages-count'),
     chunksCount: document.getElementById('chunks-count'),
     lastUpdated: document.getElementById('last-updated'),
@@ -359,8 +360,8 @@ function setupEventListeners() {
     elements.docsTypeFilter.addEventListener('change', loadDocuments);
     elements.docsCategoryFilter.addEventListener('change', filterDocuments);
 
-    // Scraper
-    elements.scraperBtn.addEventListener('click', () => showModal(elements.scraperModal));
+    // Admin (opens Scraper/KB Management modal)
+    elements.adminBtn.addEventListener('click', () => showModal(elements.scraperModal));
     elements.startScrapeBtn.addEventListener('click', startScrape);
     elements.cancelScrapeBtn.addEventListener('click', cancelScrape);
     elements.clearCategoryBtn.addEventListener('click', clearSelectedCategory);
@@ -1727,7 +1728,6 @@ async function loadScraperStats() {
         elements.lastUpdated.textContent = data.last_full_scrape
             ? formatDate(data.last_full_scrape)
             : 'Never';
-        elements.scraperStatusText.textContent = `Knowledge base: ${data.total_pages || 0} pages, ${data.total_chunks || 0} chunks`;
 
         // Display per-category stats
         if (data.by_category && Object.keys(data.by_category).length > 0) {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=40">
+    <link rel="stylesheet" href="/static/css/styles.css?v=41">
 </head>
 <body class="clean-slate">
     <!-- Header -->
@@ -17,6 +17,9 @@
         <div class="header-controls">
             <button id="documents-btn" class="btn btn-small btn-secondary" aria-label="Browse Documents">
                 📄 Documents
+            </button>
+            <button id="admin-btn" class="icon-btn" aria-label="Admin">
+                <span class="icon">🔧</span>
             </button>
             <button id="theme-toggle" class="icon-btn" aria-label="Toggle theme">
                 <span class="icon">🌙</span>
@@ -201,14 +204,6 @@
             </div>
         </section>
     </main>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="scraper-status">
-            <span id="scraper-status-text">Knowledge base status: Unknown</span>
-            <button id="scraper-btn" class="btn btn-small">Manage</button>
-        </div>
-    </footer>
 
     <!-- Settings Modal -->
     <div class="modal hidden" id="settings-modal">
@@ -594,6 +589,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=58"></script>
+    <script src="/static/js/app.js?v=59"></script>
 </body>
 </html>
