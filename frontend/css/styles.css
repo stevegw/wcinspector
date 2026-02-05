@@ -2677,16 +2677,19 @@ select:focus {
 .course-content-area {
     flex: 1;
     display: flex;
+    flex-direction: row-reverse;
     overflow: hidden;
 }
 
-/* Lesson List */
+/* Lesson List - Right Side Navigation */
 .lesson-list {
-    width: 300px;
-    border-right: 1px solid var(--border-color);
+    width: 280px;
+    border-left: 1px solid var(--border-color);
     overflow-y: auto;
     flex-shrink: 0;
     background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    margin: var(--space-sm);
 }
 
 .lesson-item {
