@@ -98,6 +98,39 @@ body {
     transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
+/* App Loading Overlay */
+.app-loading {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    transition: opacity 0.3s ease;
+}
+
+.app-loading.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.app-loading-content {
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.app-loading-content h1 {
+    font-size: 2rem;
+    margin-bottom: var(--space-md);
+    color: var(--accent);
+}
+
+.app-loading-content p {
+    color: var(--text-secondary);
+    margin-bottom: var(--space-lg);
+}
+
 /* Typography */
 h1, h2, h3, h4, h5, h6 {
     font-weight: 600;

@@ -5,9 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=41">
+    <link rel="stylesheet" href="/static/css/styles.css?v=42">
 </head>
-<body class="clean-slate">
+<body>
+    <!-- Loading Overlay -->
+    <div id="app-loading" class="app-loading">
+        <div class="app-loading-content">
+            <h1>WCInspector</h1>
+            <p>Loading knowledge base...</p>
+            <div class="spinner-large"></div>
+        </div>
+    </div>
+
     <!-- Header -->
     <header class="header">
         <div class="header-brand">
@@ -589,6 +598,6 @@
         <!-- Toast notifications will be inserted here -->
     </div>
 
-    <script src="/static/js/app.js?v=59"></script>
+    <script src="/static/js/app.js?v=60"></script>
 </body>
 </html>

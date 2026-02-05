@@ -43,6 +43,9 @@ let voiceSettings = {
 
 // DOM Elements
 const elements = {
+    // App Loading
+    appLoading: document.getElementById('app-loading'),
+
     // Question Form
     questionForm: document.getElementById('question-form'),
     questionInput: document.getElementById('question-input'),
@@ -240,6 +243,13 @@ let isSubmitting = false;
 document.addEventListener('DOMContentLoaded', init);
 
 async function init() {
+    // Determine user state first (before any async operations)
+    // Set appropriate body class immediately (hidden behind loading overlay)
+    const isReturningUser = localStorage.getItem('hasUsedApp') === 'true';
+    if (!isReturningUser) {
+        document.body.classList.add('clean-slate');
+    }
+
     // Load settings
     await loadSettings();
 
@@ -267,11 +277,15 @@ async function init() {
     // Load AI-suggested topics for main screen
     loadMainTopicSuggestions();
 
-    // Check if returning user (exit clean slate mode if so)
-    checkCleanSlateMode();
-
     // Setup event listeners
     setupEventListeners();
+
+    // Hide loading overlay after all initialization
+    if (elements.appLoading) {
+        elements.appLoading.classList.add('hidden');
+        // Remove from DOM after fade transition
+        setTimeout(() => elements.appLoading.remove(), 300);
+    }
 }
 
 function setupEventListeners() {
@@ -2634,14 +2648,6 @@ function exitCleanSlate() {
     if (document.body.classList.contains('clean-slate')) {
         document.body.classList.remove('clean-slate');
         localStorage.setItem('hasUsedApp', 'true');
-    }
-}
-
-function checkCleanSlateMode() {
-    // Keep clean slate for new users, exit for returning users with history
-    const hasUsed = localStorage.getItem('hasUsedApp');
-    if (hasUsed === 'true') {
-        document.body.classList.remove('clean-slate');
     }
 }
 
