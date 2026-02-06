@@ -1897,7 +1897,8 @@ function displayHistory(questions) {
 }
 
 function displayFlatHistory(questions) {
-    elements.historyList.innerHTML = questions.map(q => `
+    const toggleHtml = getHistoryToggleHtml();
+    const itemsHtml = questions.map(q => `
         <div class="history-item ${q.id === currentQuestionId ? 'active' : ''}"
              data-id="${q.id}"
              title="${escapeHtml(q.question_text)}">
@@ -1905,7 +1906,21 @@ function displayFlatHistory(questions) {
         </div>
     `).join('');
 
+    elements.historyList.innerHTML = toggleHtml + itemsHtml;
     addHistoryClickHandlers();
+}
+
+function getHistoryToggleHtml() {
+    return `
+        <div class="history-group-toggle">
+            <button class="btn-icon ${historyGroupMode === 'category' ? 'active' : ''}"
+                    onclick="setHistoryGroupMode('category')" title="Group by Category">📂</button>
+            <button class="btn-icon ${historyGroupMode === 'time' ? 'active' : ''}"
+                    onclick="setHistoryGroupMode('time')" title="Group by Time">🕐</button>
+            <button class="btn-icon ${historyGroupMode === 'flat' ? 'active' : ''}"
+                    onclick="setHistoryGroupMode('flat')" title="Flat List">📋</button>
+        </div>
+    `;
 }
 
 function displayTimeGroupedHistory(questions) {
@@ -1985,16 +2000,7 @@ function renderGroupedHistory(groups) {
     let html = '<div class="history-groups">';
 
     // Add group mode toggle
-    html += `
-        <div class="history-group-toggle">
-            <button class="btn-icon ${historyGroupMode === 'category' ? 'active' : ''}"
-                    onclick="setHistoryGroupMode('category')" title="Group by Category">📂</button>
-            <button class="btn-icon ${historyGroupMode === 'time' ? 'active' : ''}"
-                    onclick="setHistoryGroupMode('time')" title="Group by Time">🕐</button>
-            <button class="btn-icon ${historyGroupMode === 'flat' ? 'active' : ''}"
-                    onclick="setHistoryGroupMode('flat')" title="Flat List">📋</button>
-        </div>
-    `;
+    html += getHistoryToggleHtml();
 
     for (const [groupName, items] of Object.entries(groups)) {
         if (items.length === 0) continue;
