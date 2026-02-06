@@ -26,6 +26,62 @@ CHUNK_SIZE = 1500  # characters (was 1000)
 CHUNK_OVERLAP = 300  # overlap for better continuity (was 150)
 
 
+def sanitize_llm_json(json_str: str) -> str:
+    """
+    Sanitize JSON string from LLM responses to handle common issues.
+
+    LLMs often produce JSON with:
+    - Unescaped control characters (newlines, tabs) inside string values
+    - Trailing commas
+    - Comments
+    """
+    # Remove any BOM or zero-width characters
+    json_str = json_str.strip().lstrip('\ufeff')
+
+    # Replace literal control characters inside strings with escaped versions
+    # This regex finds strings and escapes control chars within them
+    def escape_control_chars(match):
+        s = match.group(0)
+        # Escape control characters except already escaped ones
+        result = []
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if c == '\\' and i + 1 < len(s):
+                # Keep existing escape sequences
+                result.append(s[i:i+2])
+                i += 2
+            elif ord(c) < 32:
+                # Escape control characters
+                if c == '\n':
+                    result.append('\\n')
+                elif c == '\r':
+                    result.append('\\r')
+                elif c == '\t':
+                    result.append('\\t')
+                else:
+                    result.append(f'\\u{ord(c):04x}')
+                i += 1
+            else:
+                result.append(c)
+                i += 1
+        return ''.join(result)
+
+    # Match JSON strings (handling escaped quotes)
+    json_str = re.sub(r'"(?:[^"\\]|\\.)*"', escape_control_chars, json_str)
+
+    # Remove trailing commas before ] or }
+    json_str = re.sub(r',\s*([}\]])', r'\1', json_str)
+
+    return json_str
+
+
+def safe_json_loads(json_str: str) -> dict:
+    """Safely parse JSON from LLM responses with sanitization."""
+    sanitized = sanitize_llm_json(json_str)
+    return json.loads(sanitized)
+
+
 def chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) -> List[str]:
     """Split text into overlapping chunks for better retrieval."""
     if len(text) <= chunk_size:
@@ -96,6 +152,28 @@ except Exception as e:
 
 # Available documentation categories
 DOC_CATEGORIES = ["windchill", "creo", "community-windchill", "community-creo", "internal-docs"]
+
+# Predefined PTC categories for product name mapping
+PTC_CATEGORIES = {"windchill", "creo", "community-windchill", "community-creo"}
+
+
+def get_product_name_for_category(category: str) -> str:
+    """Get display product name based on category.
+
+    Returns appropriate product name for PTC categories,
+    or formats custom category names into readable titles.
+    """
+    if category == "creo" or category == "community-creo":
+        return "Creo Parametric"
+    elif category == "windchill" or category == "community-windchill":
+        return "Windchill"
+    elif category and category not in PTC_CATEGORIES:
+        # Custom category - format as title case
+        return category.replace("-", " ").replace("_", " ").title()
+    else:
+        # No category specified
+        return "the software"
+
 
 # Ollama API settings
 OLLAMA_BASE_URL = "http://localhost:11434"
@@ -400,7 +478,8 @@ async def generate_answer_with_groq(
     }
     temperature = tone_temperatures.get(tone, 0.6)
 
-    product_name = "Creo Parametric" if category == "creo" else "Windchill"
+    # Get product name based on category
+    product_name = get_product_name_for_category(category)
     user_prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
 
 Question: {question}
@@ -443,7 +522,8 @@ async def generate_answer_with_ollama(
     }
     temperature = tone_temperatures.get(tone, 0.6)
 
-    product_name = "Creo Parametric" if category == "creo" else "Windchill"
+    # Get product name based on category
+    product_name = get_product_name_for_category(category)
     prompt = f"""Based on the documentation context provided, please answer this question about {product_name}:
 
 Question: {question}
@@ -556,18 +636,73 @@ async def generate_answer(
     }
 
     # Determine product name and examples based on category
-    if category == "creo":
+    # Predefined PTC categories
+    ptc_categories = {"windchill", "creo", "community-windchill", "community-creo"}
+
+    if category == "creo" or category == "community-creo":
         product_name = "Creo Parametric"
         product_desc = "PTC Creo CAD software"
         example_menu = "Navigate to Sketch > Rectangle"
         example_item = "Part: BRACKET-001.prt"
-    else:
+        is_custom_category = False
+    elif category == "windchill" or category == "community-windchill":
         product_name = "Windchill"
         product_desc = "PTC Windchill PLM"
         example_menu = "Actions > Lifecycle > Set State"
         example_item = "Part: BRACKET-001"
+        is_custom_category = False
+    elif category and category not in ptc_categories:
+        # Custom category (e.g., "Codebeamer", "internal-docs", etc.)
+        # Use the category name as the product name
+        product_name = category.replace("-", " ").replace("_", " ").title()
+        product_desc = f"{product_name} documentation"
+        example_menu = "the relevant menu or navigation path"
+        example_item = "items shown in the documentation"
+        is_custom_category = True
+    else:
+        # Default fallback (no category specified)
+        product_name = "the software"
+        product_desc = "the documentation provided"
+        example_menu = "the relevant menu path"
+        example_item = "the relevant item"
+        is_custom_category = True
 
-    system_prompt = f"""You are a {product_name} training instructor helping users learn {product_desc}. Give PRACTICAL, HANDS-ON guidance based on the documentation provided.
+    # Build different prompts for PTC products vs custom documents
+    if is_custom_category:
+        system_prompt = f"""You are a technical expert helping users learn about {product_name}. Give PRACTICAL, HANDS-ON guidance based ONLY on the documentation provided below.
+
+CRITICAL: Base your entire answer on the documentation context provided. Do NOT use information from your training data about other products or systems.
+
+Consider including these elements when relevant to the question:
+
+- **Overview:** A brief summary of the concept or task based on the documentation
+- **Key Capabilities:** Main features or functions described in the documentation
+- **Step-by-Step Instructions:** Numbered steps with specific paths or procedures from the documentation
+- **What You'll See:** Description of the UI or expected result as described in the documentation
+
+Adapt your response format to match the question type:
+- For "how to" questions: Focus on clear steps from the documentation
+- For "what is" questions: Focus on explanation and context from the documentation
+- For troubleshooting: Focus on diagnosis and solutions mentioned in the documentation
+- For comparisons: Use structured comparison format based on documented features
+
+Guidelines:
+- ONLY use information from the documentation context provided below
+- If the documentation doesn't cover something, acknowledge the limitation and say "This is not covered in the available documentation"
+- Do not make assumptions or fill gaps with external knowledge
+- Quote or reference specific content from the documentation when possible
+
+IMPORTANT: Always end your response with 1-2 practical pro tips using this exact format:
+**Pro Tip:** [A specific tip based on the documentation provided]
+
+{tone_instructions.get(tone, tone_instructions['technical'])}
+{length_instructions.get(length, length_instructions['detailed'])}
+
+Documentation context:
+{context}
+"""
+    else:
+        system_prompt = f"""You are a {product_name} training instructor helping users learn {product_desc}. Give PRACTICAL, HANDS-ON guidance based on the documentation provided.
 
 Consider including these elements when relevant to the question:
 
@@ -959,7 +1094,7 @@ Remember: Respond with valid JSON only."""
             course_json = course_json[:-3]
         course_json = course_json.strip()
 
-        course_data = json.loads(course_json)
+        course_data = safe_json_loads(course_json)
 
         # Add source URLs to lessons
         source_map = {doc.get('title', ''): doc.get('url', '') for doc in context_docs}
@@ -1163,7 +1298,7 @@ Remember:
             questions_json = questions_json[:-3]
         questions_json = questions_json.strip()
 
-        questions_data = json.loads(questions_json)
+        questions_data = safe_json_loads(questions_json)
 
         # Validate multiple choice questions
         if "questions" in questions_data:
@@ -1224,3 +1359,185 @@ Remember:
         }
     except Exception as e:
         return {"success": False, "error": f"Error generating questions: {str(e)}"}
+
+
+async def generate_topic_suggestions(
+    titles: List[str],
+    topics: List[str],
+    category: str = None,
+    limit: int = 8
+) -> List[Dict]:
+    """
+    Use LLM to suggest meaningful learning topics based on actual document content.
+
+    Analyzes real content snippets from the knowledge base to generate
+    specific, actionable learning topics rather than relying on generic titles.
+
+    Args:
+        titles: List of document titles (used as fallback)
+        topics: List of existing topic tags (used as fallback)
+        category: Optional category filter (e.g., 'creo', 'windchill')
+        limit: Number of suggestions to return
+
+    Returns:
+        List of dicts with 'topic' and 'description' keys
+    """
+    from database import SessionLocal, Setting, ScrapedPage
+    import random
+
+    # Get settings
+    db = SessionLocal()
+    try:
+        settings_records = db.query(Setting).all()
+        settings = {record.key: record.value for record in settings_records}
+        provider = settings.get("llm_provider", "groq")
+        model = settings.get("ollama_model", "llama3:8b")
+        groq_model = settings.get("groq_model", "llama-3.1-8b-instant")
+
+        # Get actual content samples from documents
+        query = db.query(ScrapedPage).filter(
+            ScrapedPage.content != None,
+            ScrapedPage.content != ""
+        )
+        if category:
+            query = query.filter(ScrapedPage.category == category)
+
+        # Get pages with substantial content
+        pages = query.all()
+        content_samples = []
+        fallback_titles = []
+
+        for page in pages:
+            # Collect titles for fallback
+            if page.title and page.title.lower() not in ['document', 'q&a', 'untitled', '']:
+                fallback_titles.append(page.title)
+
+            if page.content:
+                content = page.content.strip()
+                # Be more lenient - accept content > 50 chars
+                if len(content) > 50:
+                    # Take first 500 chars as a sample
+                    sample = content[:500]
+                    title_part = f"[{page.title}] " if page.title and page.title.lower() not in ['document', 'q&a', 'untitled'] else ""
+                    content_samples.append(f"{title_part}{sample}")
+
+        # Randomly sample to get diverse content (max 15 samples to fit in context)
+        if len(content_samples) > 15:
+            content_samples = random.sample(content_samples, 15)
+
+        print(f"[TopicSuggestions] Category: {category}, Pages found: {len(pages)}, Content samples: {len(content_samples)}, Fallback titles: {len(fallback_titles)}")
+
+    finally:
+        db.close()
+
+    if not content_samples:
+        # Fallback to titles from the query or passed titles
+        all_titles = fallback_titles + [t for t in titles if t.lower() not in ['document', 'q&a', 'untitled']]
+        if all_titles:
+            content_samples = all_titles[:20]
+        if not content_samples:
+            return []
+
+    # Determine context based on category
+    if category == "creo":
+        product_context = "Creo Parametric CAD software"
+        example_topics = "sketch constraints, assembly mates, drawing views, surface modeling, sheet metal design"
+    elif category == "windchill":
+        product_context = "Windchill PLM system"
+        example_topics = "BOM management, change processes, workflow configuration, part versioning, document management"
+    elif category == "community":
+        product_context = "PTC community Q&A and best practices"
+        example_topics = "troubleshooting tips, configuration tricks, integration guides, performance tuning"
+    elif category:
+        # Custom category - create context from category name
+        display_name = category.replace("-", " ").replace("_", " ").title()
+        product_context = f"{display_name} documentation"
+        example_topics = "key concepts, procedures, best practices, common tasks, troubleshooting"
+    else:
+        product_context = "PTC Windchill and Creo software"
+        example_topics = "PLM workflows, CAD modeling, data management, system administration"
+
+    system_prompt = f"""You are a {product_context} training expert. Analyze these content excerpts
+from the knowledge base and identify specific, practical topics users would want to learn.
+
+Return JSON array only, no markdown:
+[{{"topic": "Specific Topic Name", "description": "What you'll learn and why it matters"}}]
+
+Guidelines:
+- Extract {limit} SPECIFIC topics from the actual content shown
+- Topics should be actionable skills or knowledge areas (like: {example_topics})
+- Avoid generic topics like "Getting Started" or "Overview"
+- Each topic should be teachable in a quiz or lesson format
+- Descriptions should mention specific features or tasks covered
+- Keep topic names 3-6 words, descriptions 10-20 words"""
+
+    user_prompt = f"""Based on these content samples from the knowledge base, suggest {limit} specific learning topics:
+
+--- CONTENT SAMPLES ---
+{chr(10).join(content_samples[:15])}
+--- END SAMPLES ---
+
+Generate {limit} specific, practical learning topics based on what's actually covered in this content."""
+
+    try:
+        if provider == "groq" and groq_client:
+            response = groq_client.chat.completions.create(
+                model=groq_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=1500
+            )
+            suggestions_json = response.choices[0].message.content
+        else:
+            # Use Ollama
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": user_prompt,
+                        "system": system_prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.7}
+                    }
+                )
+                if response.status_code != 200:
+                    return []
+                suggestions_json = response.json().get("response", "[]")
+
+        # Clean up the response
+        suggestions_json = suggestions_json.strip()
+        if suggestions_json.startswith("```json"):
+            suggestions_json = suggestions_json[7:]
+        if suggestions_json.startswith("```"):
+            suggestions_json = suggestions_json[3:]
+        if suggestions_json.endswith("```"):
+            suggestions_json = suggestions_json[:-3]
+        suggestions_json = suggestions_json.strip()
+
+        suggestions = safe_json_loads(suggestions_json)
+
+        # Validate and limit results
+        valid_suggestions = []
+        for s in suggestions:
+            if isinstance(s, dict) and s.get("topic"):
+                topic = str(s.get("topic", "")).strip()
+                # Filter out generic/useless topics
+                if topic.lower() not in ['document', 'q&a', 'overview', 'introduction', 'getting started']:
+                    valid_suggestions.append({
+                        "topic": topic[:100],
+                        "description": str(s.get("description", ""))[:200]
+                    })
+                    if len(valid_suggestions) >= limit:
+                        break
+
+        return valid_suggestions
+
+    except json.JSONDecodeError:
+        return []
+    except Exception as e:
+        print(f"Error generating topic suggestions: {e}")
+        return []

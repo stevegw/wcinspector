@@ -52,6 +52,10 @@ let speechStartTime = 0;
 let speechPausedTime = 0;
 let speechPausedElapsed = 0;
 let speechStartWordIndex = 0;
+
+// Maximum characters for word-by-word highlighting (to prevent UI freeze on large documents)
+// Content larger than this will use plain speech without highlighting
+const MAX_HIGHLIGHT_CHARS = 8000;
 let isRestartingSpeech = false;
 
 // DOM Elements
@@ -1685,10 +1689,22 @@ function speakText(text, button = null, containerElement = null) {
         return;
     }
 
-    // Prepare highlighting if container provided
+    // Check content size for highlighting decision
     let speakableText = text;
+    let useHighlighting = false;
+
     if (containerElement) {
-        speakableText = prepareSpeechHighlight(containerElement);
+        const contentLength = containerElement.textContent.length;
+
+        if (contentLength > MAX_HIGHLIGHT_CHARS) {
+            // Content too large - use plain speech without highlighting
+            speakableText = containerElement.textContent;
+            showToast(`Large document (${Math.round(contentLength/1000)}k chars) - narrating without highlighting. Use Summary for better experience.`, 'info');
+        } else {
+            // Content is small enough for highlighting
+            speakableText = prepareSpeechHighlight(containerElement);
+            useHighlighting = true;
+        }
     }
 
     if (!speakableText || speakableText.trim() === '') {
@@ -1744,8 +1760,8 @@ function speakText(text, button = null, containerElement = null) {
         isPaused = false;
         updateListenButton();
         updateButtonState('speaking');
-        // Start time-based highlighting if container was provided
-        if (containerElement) {
+        // Start time-based highlighting only if highlighting was prepared
+        if (useHighlighting && containerElement) {
             startTimeBasedHighlighting(speakableText, voiceSettings.rate);
         }
     };
@@ -1777,6 +1793,8 @@ function speakText(text, button = null, containerElement = null) {
 // Toggle speech for document viewer content
 function toggleViewerSpeech() {
     const btn = document.getElementById('viewer-listen-btn');
+    const contentEl = document.getElementById('viewer-content');
+    const summaryEl = document.getElementById('viewer-summary');
 
     if (isSpeaking && !isPaused) {
         // Currently speaking -> Pause
@@ -1795,9 +1813,19 @@ function toggleViewerSpeech() {
             btn.classList.remove('paused');
         }
     } else {
-        // Not speaking -> Start with highlighting
-        const contentEl = document.getElementById('viewer-content');
+        // Not speaking -> Start
         if (contentEl) {
+            const contentLength = contentEl.textContent.length;
+
+            // For large documents, suggest using summary if available
+            if (contentLength > MAX_HIGHLIGHT_CHARS) {
+                // Check if summary exists and is visible
+                if (summaryEl && !summaryEl.classList.contains('hidden') && summaryEl.textContent.trim()) {
+                    // Summary is available - suggest using it
+                    showToast('Tip: Use the "Listen" button on the Summary for a better narration experience', 'info');
+                }
+            }
+
             speakText(contentEl.textContent, btn, contentEl);
         }
     }
@@ -2051,6 +2079,20 @@ function showDocumentViewer(title, content, url = null) {
         summarizeBtn.style.display = url ? 'inline-block' : 'none';
         summarizeBtn.disabled = false;
         summarizeBtn.textContent = 'Summarize';
+    }
+
+    // Update listen button for large documents
+    const listenBtn = document.getElementById('viewer-listen-btn');
+    if (listenBtn) {
+        const contentLength = content.length;
+        if (contentLength > MAX_HIGHLIGHT_CHARS) {
+            listenBtn.textContent = '🔊 Listen (no highlight)';
+            listenBtn.title = 'Large document - narration without word highlighting. Consider using Summary for a better experience.';
+        } else {
+            listenBtn.textContent = '🔊 Listen';
+            listenBtn.title = '';
+        }
+        listenBtn.classList.remove('speaking', 'paused');
     }
 
     viewerModal.classList.remove('hidden');
