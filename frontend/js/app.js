@@ -3593,41 +3593,110 @@ function renderCourseList() {
         return;
     }
 
-    // Render as roadmap
+    // Calculate journey statistics
+    const totalCourses = courses.length;
+    const completedCourses = courses.filter(c => c.progress === 100).length;
+    const inProgressCourses = courses.filter(c => c.progress > 0 && c.progress < 100);
+    const overallProgress = totalCourses > 0 ? Math.round((completedCourses / totalCourses) * 100) : 0;
+
+    // Find the course to continue (first in-progress, or first not started)
+    const continueCourse = inProgressCourses[0] || courses.find(c => c.progress === 0);
+
+    // Determine user level based on completed courses
+    const userLevel = getUserLevel(completedCourses);
+
+    // Define milestones
+    const milestones = [
+        { at: 1, label: 'First Steps', icon: '🌱' },
+        { at: 3, label: 'Explorer', icon: '🧭' },
+        { at: 5, label: 'Achiever', icon: '🏆' },
+        { at: 10, label: 'Master', icon: '👑' }
+    ];
+
+    // Render journey header and roadmap
     elements.courseList.innerHTML = `
-        <div class="course-roadmap">
-            ${courses.map((course, index) => {
-                const isActive = currentCourse && currentCourse.id === course.id;
-                const isCompleted = course.progress === 100;
-                const isCurrent = !isCompleted && course.progress > 0;
-
-                // For now, no locking - all courses accessible
-                const nodeClass = [
-                    'roadmap-node',
-                    isActive ? 'active' : '',
-                    isCompleted ? 'completed' : '',
-                    isCurrent ? 'current' : ''
-                ].filter(Boolean).join(' ');
-
-                const statusText = isCompleted
-                    ? 'Completed'
-                    : course.progress > 0
-                        ? `${course.completed_items}/${course.total_items} done`
-                        : 'Not started';
-
-                return `
-                    <div class="${nodeClass}" data-id="${course.id}" title="${escapeHtml(course.title)}">
-                        <div class="node-connector"></div>
-                        <div class="node-circle">
-                            ${isCompleted ? '✓' : (index + 1)}
-                        </div>
-                        <div class="node-content">
-                            <div class="node-title">${escapeHtml(course.title)}</div>
-                            <div class="node-status">${statusText}</div>
-                        </div>
+        <div class="journey-container">
+            <!-- Journey Header -->
+            <div class="journey-header">
+                <div class="journey-status">
+                    <span class="status-icon">${userLevel.icon}</span>
+                    <div class="status-info">
+                        <div class="status-level">${userLevel.title}</div>
+                        <div class="status-progress">${completedCourses}/${totalCourses} courses completed</div>
                     </div>
-                `;
-            }).join('')}
+                </div>
+                <div class="journey-progress-bar">
+                    <div class="progress-fill" style="width: ${overallProgress}%"></div>
+                    <span class="progress-label">${overallProgress}%</span>
+                </div>
+            </div>
+
+            <!-- Continue Learning Button -->
+            ${continueCourse ? `
+                <button class="continue-learning-btn" data-id="${continueCourse.id}">
+                    <span class="continue-icon">▶</span>
+                    <div class="continue-text">
+                        <span class="continue-label">Continue Learning</span>
+                        <span class="continue-course">${escapeHtml(continueCourse.title)}</span>
+                    </div>
+                    <span class="continue-progress">${continueCourse.progress}%</span>
+                </button>
+            ` : ''}
+
+            <!-- Milestone Progress -->
+            <div class="milestone-track">
+                ${milestones.map(m => `
+                    <div class="milestone ${completedCourses >= m.at ? 'achieved' : ''}" title="${m.label}">
+                        <span class="milestone-icon">${m.icon}</span>
+                        <span class="milestone-count">${m.at}</span>
+                    </div>
+                `).join('<div class="milestone-line"></div>')}
+            </div>
+
+            <!-- Course Roadmap -->
+            <div class="course-roadmap">
+                ${courses.map((course, index) => {
+                    const isActive = currentCourse && currentCourse.id === course.id;
+                    const isCompleted = course.progress === 100;
+                    const isCurrent = !isCompleted && course.progress > 0;
+                    const isNext = !isCompleted && !isCurrent && continueCourse && course.id === continueCourse.id;
+
+                    const nodeClass = [
+                        'roadmap-node',
+                        isActive ? 'active' : '',
+                        isCompleted ? 'completed' : '',
+                        isCurrent ? 'current' : '',
+                        isNext ? 'next-up' : ''
+                    ].filter(Boolean).join(' ');
+
+                    const statusText = isCompleted
+                        ? 'Completed'
+                        : course.progress > 0
+                            ? `${course.completed_items}/${course.total_items} done`
+                            : isNext ? 'Up next' : 'Not started';
+
+                    // Show mini progress bar for in-progress courses
+                    const showProgress = course.progress > 0 && course.progress < 100;
+
+                    return `
+                        <div class="${nodeClass}" data-id="${course.id}" title="${escapeHtml(course.title)}">
+                            <div class="node-connector"></div>
+                            <div class="node-circle">
+                                ${isCompleted ? '✓' : (index + 1)}
+                            </div>
+                            <div class="node-content">
+                                <div class="node-title">${escapeHtml(course.title)}</div>
+                                <div class="node-status">${statusText}</div>
+                                ${showProgress ? `
+                                    <div class="node-progress-bar">
+                                        <div class="node-progress-fill" style="width: ${course.progress}%"></div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
         </div>
     `;
 
@@ -3638,6 +3707,23 @@ function renderCourseList() {
             openCourse(courseId);
         });
     });
+
+    // Add click handler for continue button
+    const continueBtn = elements.courseList.querySelector('.continue-learning-btn');
+    if (continueBtn) {
+        continueBtn.addEventListener('click', () => {
+            const courseId = parseInt(continueBtn.dataset.id);
+            openCourse(courseId);
+        });
+    }
+}
+
+function getUserLevel(completedCourses) {
+    if (completedCourses >= 10) return { title: 'Master', icon: '👑' };
+    if (completedCourses >= 5) return { title: 'Achiever', icon: '🏆' };
+    if (completedCourses >= 3) return { title: 'Explorer', icon: '🧭' };
+    if (completedCourses >= 1) return { title: 'Learner', icon: '🌱' };
+    return { title: 'Newcomer', icon: '👋' };
 }
 
 // Show AI course generation modal

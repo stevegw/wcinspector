@@ -2117,6 +2117,186 @@ select:focus {
 }
 
 /* Roadmap container */
+/* Journey Container */
+.journey-container {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+/* Journey Header */
+.journey-header {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    color: white;
+}
+
+.journey-status {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-sm);
+}
+
+.status-icon {
+    font-size: 1.8rem;
+}
+
+.status-info {
+    flex: 1;
+}
+
+.status-level {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.status-progress {
+    font-size: 0.75rem;
+    opacity: 0.9;
+}
+
+.journey-progress-bar {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.journey-progress-bar .progress-fill {
+    height: 100%;
+    background: white;
+    border-radius: 4px;
+    transition: width 0.5s ease;
+}
+
+.journey-progress-bar .progress-label {
+    position: absolute;
+    right: var(--space-xs);
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.6rem;
+    font-weight: 600;
+}
+
+/* Continue Learning Button */
+.continue-learning-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+    width: 100%;
+    padding: var(--space-md);
+    background: var(--bg-secondary);
+    border: 2px solid var(--accent);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+
+.continue-learning-btn:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.continue-learning-btn:hover .continue-label,
+.continue-learning-btn:hover .continue-course {
+    color: white;
+}
+
+.continue-icon {
+    width: 40px;
+    height: 40px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.continue-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.continue-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.continue-course {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.continue-progress {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--accent);
+}
+
+.continue-learning-btn:hover .continue-progress {
+    color: white;
+}
+
+/* Milestone Track */
+.milestone-track {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+}
+
+.milestone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    opacity: 0.4;
+    transition: all 0.3s ease;
+}
+
+.milestone.achieved {
+    opacity: 1;
+}
+
+.milestone-icon {
+    font-size: 1.2rem;
+}
+
+.milestone-count {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.milestone.achieved .milestone-count {
+    color: var(--accent);
+}
+
+.milestone-line {
+    flex: 1;
+    height: 2px;
+    background: var(--border-color);
+    margin: 0 var(--space-xs);
+}
+
+/* Course Roadmap */
 .course-roadmap {
     display: flex;
     flex-direction: column;
@@ -2125,7 +2305,6 @@ select:focus {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    margin-top: var(--space-sm);
 }
 
 .roadmap-node {
@@ -2245,6 +2424,47 @@ select:focus {
 
 .roadmap-node.active .node-status {
     color: rgba(255, 255, 255, 0.8);
+}
+
+/* Next-up node (suggested next course) */
+.roadmap-node.next-up .node-circle {
+    border-color: var(--accent);
+    border-width: 3px;
+    animation: pulse-border 2s infinite;
+}
+
+.roadmap-node.next-up .node-status {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+@keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(139, 197, 63, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(139, 197, 63, 0); }
+}
+
+/* Node progress bar (for in-progress courses) */
+.node-progress-bar {
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 2px;
+    margin-top: var(--space-xs);
+    overflow: hidden;
+}
+
+.node-progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.roadmap-node.active .node-progress-bar {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.roadmap-node.active .node-progress-fill {
+    background: white;
 }
 
 /* Lock icon for locked nodes */
