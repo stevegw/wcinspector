@@ -207,6 +207,10 @@ const elements = {
     // Courses
     courseList: document.getElementById('course-list'),
     newCourseBtn: document.getElementById('new-course-btn'),
+
+    // Community Insights
+    communityInsights: document.getElementById('community-insights'),
+    refreshCommunityBtn: document.getElementById('refresh-community-btn'),
     courseModal: document.getElementById('course-modal'),
     courseModalTitle: document.getElementById('course-modal-title'),
     courseTopic: document.getElementById('course-topic'),
@@ -285,6 +289,9 @@ async function init() {
     // Load courses
     await loadCourses();
 
+    // Load community insights
+    await loadCommunityInsights();
+
     // Load scraper stats
     await loadScraperStats();
 
@@ -332,6 +339,11 @@ function setupEventListeners() {
 
     // Category selector
     elements.categorySelect.addEventListener('change', handleCategoryChange);
+
+    // Community Insights refresh
+    if (elements.refreshCommunityBtn) {
+        elements.refreshCommunityBtn.addEventListener('click', loadCommunityInsights);
+    }
 
     // Sample Questions
     document.querySelectorAll('.sample-btn').forEach(btn => {
@@ -3724,6 +3736,113 @@ function getUserLevel(completedCourses) {
     if (completedCourses >= 3) return { title: 'Explorer', icon: '🧭' };
     if (completedCourses >= 1) return { title: 'Learner', icon: '🌱' };
     return { title: 'Newcomer', icon: '👋' };
+}
+
+// ============== Community Insights ==============
+
+async function loadCommunityInsights() {
+    if (!elements.communityInsights) return;
+
+    try {
+        // Show loading state
+        elements.communityInsights.innerHTML = '<p class="loading-text">Loading community insights...</p>';
+
+        // Fetch popular questions and topics in parallel
+        const [popularData, topicsData] = await Promise.all([
+            apiRequest('/community/popular?limit=5').catch(() => ({ questions: [] })),
+            apiRequest('/community/topics').catch(() => ({ topics: [], total_questions: 0 }))
+        ]);
+
+        renderCommunityInsights(popularData.questions || [], topicsData);
+    } catch (error) {
+        console.error('Failed to load community insights:', error);
+        elements.communityInsights.innerHTML = '<p class="empty-state">Could not load community insights</p>';
+    }
+}
+
+function renderCommunityInsights(questions, topicsData) {
+    if (!elements.communityInsights) return;
+
+    const topics = topicsData.topics || [];
+    const totalQuestions = topicsData.total_questions || 0;
+
+    // If no community data at all
+    if (questions.length === 0 && topics.length === 0) {
+        elements.communityInsights.innerHTML = `
+            <p class="empty-state">No community data yet.<br>
+            <small>Scrape community forums to see insights.</small></p>
+        `;
+        return;
+    }
+
+    let html = '<div class="community-content">';
+
+    // Trending Topics
+    if (topics.length > 0) {
+        html += `
+            <div class="community-section">
+                <h4 class="section-label">Trending Topics</h4>
+                <div class="topic-tags">
+                    ${topics.slice(0, 8).map(t => `
+                        <span class="topic-tag" onclick="askAboutTopic('${escapeHtml(t.topic)}')" title="${t.count} questions">
+                            ${escapeHtml(t.topic)}
+                            <span class="tag-count">${t.count}</span>
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Popular Questions
+    if (questions.length > 0) {
+        html += `
+            <div class="community-section">
+                <h4 class="section-label">Popular Questions</h4>
+                <div class="popular-questions">
+                    ${questions.map(q => `
+                        <div class="popular-question" onclick="openCommunityQuestion('${escapeHtml(q.url)}')" title="${escapeHtml(q.title)}">
+                            <div class="question-icon">${q.has_solution ? '✅' : '💬'}</div>
+                            <div class="question-content">
+                                <div class="question-title">${escapeHtml(q.title)}</div>
+                                <div class="question-meta">
+                                    ${q.has_solution ? '<span class="solved-badge">Solved</span>' : ''}
+                                    <span class="answer-count">${q.answer_count} answers</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Stats footer
+    if (totalQuestions > 0) {
+        html += `
+            <div class="community-stats">
+                <span class="stat-icon">📊</span>
+                <span class="stat-text">${totalQuestions} community Q&As indexed</span>
+            </div>
+        `;
+    }
+
+    html += '</div>';
+    elements.communityInsights.innerHTML = html;
+}
+
+function askAboutTopic(topic) {
+    if (elements.questionInput) {
+        elements.questionInput.value = `What is ${topic}?`;
+        elements.questionInput.focus();
+        exitCleanSlate();
+    }
+}
+
+function openCommunityQuestion(url) {
+    if (url) {
+        window.open(url, '_blank');
+    }
 }
 
 // Show AI course generation modal
