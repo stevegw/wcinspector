@@ -967,6 +967,112 @@ Provide a helpful summary that gives readers a quick understanding of what this 
         return f"Error generating summary: {str(e)}"
 
 
+async def format_lesson_content(
+    content: str,
+    title: str = "Lesson",
+    provider: str = None,
+    model: str = None,
+    groq_model: str = None
+) -> Dict:
+    """Format lesson content into a readable structure with sections and key points.
+
+    Args:
+        content: The raw lesson text to format
+        title: The lesson title for context
+        provider: LLM provider (groq or ollama)
+        model: Model name for Ollama
+        groq_model: Model name for Groq
+
+    Returns:
+        Dict with formatted sections: {sections: [{heading, content, bullets}], key_takeaways: []}
+    """
+    use_provider = provider or LLM_PROVIDER or "groq"
+
+    # Truncate content if too long
+    max_content = 6000
+    truncated = content[:max_content] if len(content) > max_content else content
+
+    system_prompt = """You are a learning content formatter. Your job is to take raw documentation text and restructure it into a clear, easy-to-read learning format.
+
+Output ONLY valid JSON with this structure:
+{
+    "sections": [
+        {
+            "heading": "Section Title",
+            "content": "Paragraph explanation...",
+            "bullets": ["Key point 1", "Key point 2"]
+        }
+    ],
+    "key_takeaways": ["Main takeaway 1", "Main takeaway 2", "Main takeaway 3"]
+}
+
+Guidelines:
+- Create 2-5 logical sections based on the content
+- Each section should have a clear heading, a brief explanation paragraph, and 2-4 bullet points
+- Extract 3-5 key takeaways that summarize the most important learnings
+- Keep language clear and concise
+- Preserve technical accuracy from the original content"""
+
+    user_prompt = f"""Please format this lesson content into a structured, readable format:
+
+Title: {title}
+
+Content:
+{truncated}
+
+Return ONLY the JSON structure, no other text."""
+
+    try:
+        if use_provider == "groq" and groq_client:
+            use_model = groq_model or LLM_MODEL or DEFAULT_MODELS["groq"]
+            response = groq_client.chat.completions.create(
+                model=use_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            result_text = response.choices[0].message.content
+        else:
+            # Use Ollama
+            use_model = model or LLM_MODEL or DEFAULT_MODELS["ollama"]
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"{OLLAMA_BASE_URL}/api/chat",
+                    json={
+                        "model": use_model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "stream": False,
+                        "options": {"temperature": 0.3}
+                    }
+                )
+                if response.status_code == 200:
+                    result_text = response.json()["message"]["content"]
+                else:
+                    return {"error": f"Ollama returned {response.status_code}"}
+
+        # Parse JSON from response
+        result_text = result_text.strip()
+        # Extract JSON if wrapped in markdown code blocks
+        if "```json" in result_text:
+            result_text = result_text.split("```json")[1].split("```")[0]
+        elif "```" in result_text:
+            result_text = result_text.split("```")[1].split("```")[0]
+
+        result_text = sanitize_llm_json(result_text)
+        return json.loads(result_text)
+
+    except json.JSONDecodeError as e:
+        return {"error": f"Failed to parse AI response: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Error formatting content: {str(e)}"}
+
+
 async def generate_course(
     topic: str,
     category: str = None,

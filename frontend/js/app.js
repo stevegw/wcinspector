@@ -218,10 +218,6 @@ const elements = {
     // Courses
     courseList: document.getElementById('course-list'),
     newCourseBtn: document.getElementById('new-course-btn'),
-
-    // Community Insights
-    communityInsights: document.getElementById('community-insights'),
-    refreshCommunityBtn: document.getElementById('refresh-community-btn'),
     courseModal: document.getElementById('course-modal'),
     courseModalTitle: document.getElementById('course-modal-title'),
     courseTopic: document.getElementById('course-topic'),
@@ -300,9 +296,6 @@ async function init() {
     // Load courses
     await loadCourses();
 
-    // Load community insights
-    await loadCommunityInsights();
-
     // Load user profile
     await loadUserProfile();
 
@@ -353,11 +346,6 @@ function setupEventListeners() {
 
     // Category selector
     elements.categorySelect.addEventListener('change', handleCategoryChange);
-
-    // Community Insights refresh
-    if (elements.refreshCommunityBtn) {
-        elements.refreshCommunityBtn.addEventListener('click', loadCommunityInsights);
-    }
 
     // Sample Questions
     document.querySelectorAll('.sample-btn').forEach(btn => {
@@ -3818,20 +3806,20 @@ function renderCommunityInsights(questions, topicsData) {
         `;
     }
 
-    // Popular Questions
+    // Popular Questions - clicking asks about the topic in-app
     if (questions.length > 0) {
         html += `
             <div class="community-section">
-                <h4 class="section-label">Popular Questions</h4>
+                <h4 class="section-label">Community Questions</h4>
                 <div class="popular-questions">
                     ${questions.map(q => `
-                        <div class="popular-question" onclick="openCommunityQuestion('${escapeHtml(q.url)}')" title="${escapeHtml(q.title)}">
+                        <div class="popular-question" onclick="askCommunityQuestion('${escapeHtml(q.title)}')" title="Ask about: ${escapeHtml(q.title)}">
                             <div class="question-icon">${q.has_solution ? '✅' : '💬'}</div>
                             <div class="question-content">
                                 <div class="question-title">${escapeHtml(q.title)}</div>
                                 <div class="question-meta">
                                     ${q.has_solution ? '<span class="solved-badge">Solved</span>' : ''}
-                                    <span class="answer-count">${q.answer_count} answers</span>
+                                    <span class="external-link" onclick="event.stopPropagation(); openCommunityQuestion('${escapeHtml(q.url)}')" title="View on community">↗</span>
                                 </div>
                             </div>
                         </div>
@@ -3858,6 +3846,15 @@ function renderCommunityInsights(questions, topicsData) {
 function askAboutTopic(topic) {
     if (elements.questionInput) {
         elements.questionInput.value = `What is ${topic}?`;
+        elements.questionInput.focus();
+        exitCleanSlate();
+    }
+}
+
+function askCommunityQuestion(title) {
+    if (elements.questionInput && title) {
+        // Use the community question title as the question
+        elements.questionInput.value = title;
         elements.questionInput.focus();
         exitCleanSlate();
     }
@@ -4289,7 +4286,7 @@ function updateCourseProgress(course) {
     }
 }
 
-// Render lesson list
+// Render lesson list as accordion
 function renderLessonList(course) {
     if (!elements.lessonList) return;
 
@@ -4310,10 +4307,9 @@ function renderLessonList(course) {
             try {
                 const aiContent = JSON.parse(item.instructor_notes);
                 if (aiContent.type === 'question') {
-                    // For questions, show a truncated version of the question
                     isQuestion = true;
                     const question = aiContent.question || '';
-                    lessonTitle = question.length > 50 ? question.substring(0, 50) + '...' : question;
+                    lessonTitle = question.length > 60 ? question.substring(0, 60) + '...' : question;
                 } else if (aiContent.ai_generated && aiContent.title) {
                     lessonTitle = aiContent.title;
                 }
@@ -4331,35 +4327,341 @@ function renderLessonList(course) {
             checkIcon = '✓';
         }
 
+        const isExpanded = currentLessonId === item.id;
+
         return `
-            <div class="lesson-item ${item.completed ? 'completed' : ''} ${currentLessonId === item.id ? 'active' : ''} ${isQuestion ? 'question-item' : ''} ${quizClass}"
+            <div class="accordion-item ${item.completed ? 'completed' : ''} ${isExpanded ? 'expanded' : ''} ${isQuestion ? 'question-item' : ''} ${quizClass}"
                  data-id="${item.id}">
-                <span class="lesson-position">${itemLabel}${index + 1}</span>
-                <div class="lesson-checkbox" data-id="${item.id}">
-                    ${checkIcon ? `<span class="check-icon">${checkIcon}</span>` : ''}
+                <div class="accordion-header" data-id="${item.id}">
+                    <span class="accordion-position">${itemLabel}${index + 1}</span>
+                    <div class="accordion-checkbox" data-id="${item.id}">
+                        ${checkIcon ? `<span class="check-icon">${checkIcon}</span>` : ''}
+                    </div>
+                    <span class="accordion-title">${escapeHtml(lessonTitle)}</span>
+                    <span class="accordion-expand-icon">${isExpanded ? '▼' : '▶'}</span>
                 </div>
-                <span class="lesson-title-text">${escapeHtml(lessonTitle)}</span>
+                <div class="accordion-content" id="accordion-content-${item.id}">
+                    <div class="accordion-content-inner">
+                        <!-- Content loaded when expanded -->
+                    </div>
+                    <div class="accordion-actions">
+                        <button class="btn btn-secondary btn-small accordion-prev" data-id="${item.id}" ${index === 0 ? 'disabled' : ''}>< Prev</button>
+                        <button class="btn btn-primary accordion-complete" data-id="${item.id}">${item.completed ? 'Mark Incomplete' : 'Mark Complete'}</button>
+                        <button class="btn btn-secondary btn-small accordion-next" data-id="${item.id}" ${index === course.items.length - 1 ? 'disabled' : ''}>Next ></button>
+                    </div>
+                </div>
             </div>
         `;
     }).join('');
 
-    // Add click handlers for lessons
-    elements.lessonList.querySelectorAll('.lesson-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            if (!e.target.closest('.lesson-checkbox')) {
-                openLesson(parseInt(item.dataset.id));
+    // Add click handlers for accordion headers
+    elements.lessonList.querySelectorAll('.accordion-header').forEach(header => {
+        header.addEventListener('click', (e) => {
+            if (!e.target.closest('.accordion-checkbox')) {
+                const itemId = parseInt(header.dataset.id);
+                toggleAccordion(itemId);
             }
         });
     });
 
     // Add click handlers for checkboxes
-    elements.lessonList.querySelectorAll('.lesson-checkbox').forEach(checkbox => {
+    elements.lessonList.querySelectorAll('.accordion-checkbox').forEach(checkbox => {
         checkbox.addEventListener('click', (e) => {
             e.stopPropagation();
             const itemId = parseInt(checkbox.dataset.id);
             toggleLessonCompleteById(itemId);
         });
     });
+
+    // Add click handlers for accordion actions
+    elements.lessonList.querySelectorAll('.accordion-complete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const itemId = parseInt(btn.dataset.id);
+            toggleLessonCompleteById(itemId);
+        });
+    });
+
+    elements.lessonList.querySelectorAll('.accordion-prev').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigateLesson(-1);
+        });
+    });
+
+    elements.lessonList.querySelectorAll('.accordion-next').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigateLesson(1);
+        });
+    });
+
+    // If there's a currently expanded item, reload its content
+    if (currentLessonId) {
+        const expandedItem = course.items.find(i => i.id === currentLessonId);
+        if (expandedItem) {
+            loadAccordionContent(expandedItem, currentLessonId);
+        }
+    }
+}
+
+// Toggle accordion item
+function toggleAccordion(itemId) {
+    if (!currentCourse) return;
+
+    const item = currentCourse.items.find(i => i.id === itemId);
+    if (!item) return;
+
+    const accordionItem = document.querySelector(`.accordion-item[data-id="${itemId}"]`);
+    if (!accordionItem) return;
+
+    const isCurrentlyExpanded = accordionItem.classList.contains('expanded');
+
+    // Collapse all items first
+    document.querySelectorAll('.accordion-item.expanded').forEach(el => {
+        el.classList.remove('expanded');
+        el.querySelector('.accordion-expand-icon').textContent = '▶';
+    });
+
+    if (!isCurrentlyExpanded) {
+        // Expand this item
+        accordionItem.classList.add('expanded');
+        accordionItem.querySelector('.accordion-expand-icon').textContent = '▼';
+        currentLessonId = itemId;
+
+        // Load content into accordion
+        loadAccordionContent(item, itemId);
+
+        // Scroll into view
+        setTimeout(() => {
+            accordionItem.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+
+        // Update resume position
+        setResumePosition(itemId);
+    } else {
+        currentLessonId = null;
+    }
+}
+
+// Cache for AI-formatted content
+const formattedContentCache = {};
+
+// Load content into accordion item
+function loadAccordionContent(item, itemId) {
+    const contentEl = document.querySelector(`#accordion-content-${itemId} .accordion-content-inner`);
+    if (!contentEl) return;
+
+    // Check if this is AI-generated content
+    let aiContent = null;
+    if (item.instructor_notes) {
+        try {
+            aiContent = JSON.parse(item.instructor_notes);
+            if (!aiContent.ai_generated && aiContent.type !== 'question') {
+                aiContent = null;
+            }
+        } catch (e) {
+            aiContent = null;
+        }
+    }
+
+    const isQuizQuestion = aiContent && aiContent.type === 'question';
+
+    // Build content HTML
+    let html = '';
+
+    // Action buttons at top for non-quiz items
+    if (!isQuizQuestion) {
+        html += `<div class="accordion-toolbar">`;
+        html += `<button class="btn btn-small btn-secondary lesson-listen-btn" data-item-id="${itemId}">🔊 Listen</button>`;
+        if (item.page_url) {
+            html += `<a href="${escapeHtml(item.page_url)}" target="_blank" class="btn btn-small btn-secondary">View Original</a>`;
+        }
+        html += `<span class="ai-formatted-badge" id="ai-badge-${itemId}" style="display:none;">✨ AI Formatted</span>`;
+        html += `</div>`;
+    }
+
+    // Main content area
+    html += `<div class="lesson-content-body" id="lesson-body-${itemId}">`;
+
+    if (aiContent) {
+        if (isQuizQuestion) {
+            // Initialize quiz state if needed
+            const questionItems = currentCourse.items.filter(i => {
+                try {
+                    const data = JSON.parse(i.instructor_notes || '{}');
+                    return data.type === 'question' && data.options && data.options.length === 4;
+                } catch { return false; }
+            });
+            initQuizState(currentCourse.id, questionItems.length, questionItems);
+            html += formatAILessonContent(aiContent, itemId);
+        } else {
+            // Show loading state - will be replaced by AI formatted content
+            html += '<div class="loading-state"><p>✨ Formatting content...</p></div>';
+        }
+    } else {
+        // Show loading state - will be replaced by AI formatted content
+        html += '<div class="loading-state"><p>✨ Formatting content...</p></div>';
+    }
+
+    html += `</div>`;
+
+    // Notes section
+    html += `
+        <div class="accordion-notes">
+            <details>
+                <summary>My Notes</summary>
+                <textarea class="accordion-notes-input" data-id="${itemId}" placeholder="Take notes as you learn..." rows="3">${escapeHtml(item.learner_notes || '')}</textarea>
+            </details>
+        </div>
+    `;
+
+    contentEl.innerHTML = html;
+
+    // Add Listen button handler
+    const listenBtn = contentEl.querySelector('.lesson-listen-btn');
+    if (listenBtn) {
+        listenBtn.addEventListener('click', () => {
+            const itemId = parseInt(listenBtn.dataset.itemId);
+            toggleLessonSpeech(itemId, listenBtn);
+        });
+    }
+
+    // Auto-trigger AI formatting for non-quiz lesson content
+    if (!isQuizQuestion && item.page_id) {
+        loadAIFormattedContent(item.page_id, itemId);
+    }
+
+    // Add note save handler
+    const notesInput = contentEl.querySelector('.accordion-notes-input');
+    if (notesInput) {
+        let saveTimeout;
+        notesInput.addEventListener('input', () => {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                saveLearnerNotes(itemId, notesInput.value);
+            }, 1000);
+        });
+    }
+
+    // Hide accordion actions for quiz questions (they have their own submit)
+    const actionsEl = document.querySelector(`#accordion-content-${itemId}`).closest('.accordion-item').querySelector('.accordion-actions');
+    if (actionsEl) {
+        actionsEl.style.display = isQuizQuestion ? 'none' : '';
+    }
+}
+
+// Load AI-formatted content
+async function loadAIFormattedContent(pageId, itemId) {
+    const bodyEl = document.getElementById(`lesson-body-${itemId}`);
+    const badge = document.getElementById(`ai-badge-${itemId}`);
+
+    if (!bodyEl) return;
+
+    // Check cache first
+    const cacheKey = `page-${pageId}`;
+    if (formattedContentCache[cacheKey]) {
+        bodyEl.innerHTML = renderFormattedContent(formattedContentCache[cacheKey]);
+        if (badge) badge.style.display = 'inline-flex';
+        return;
+    }
+
+    // Loading state is already shown from initial render
+
+    try {
+        const result = await apiRequest(`/lessons/format?page_id=${pageId}`, {
+            method: 'POST'
+        });
+
+        if (result.error) {
+            // Fallback to basic formatting
+            const item = currentCourse?.items?.find(i => i.page_id === pageId);
+            bodyEl.innerHTML = formatLessonContent(item?.page_content || 'Content unavailable');
+            console.error('AI format error:', result.error);
+            return;
+        }
+
+        // Cache the result
+        formattedContentCache[cacheKey] = result;
+
+        // Render formatted content and show badge
+        bodyEl.innerHTML = renderFormattedContent(result);
+        if (badge) badge.style.display = 'inline-flex';
+
+    } catch (error) {
+        console.error('AI format error:', error);
+        // Fallback to basic formatting
+        const item = currentCourse?.items?.find(i => i.page_id === pageId);
+        bodyEl.innerHTML = formatLessonContent(item?.page_content || 'Content unavailable');
+    }
+}
+
+// Render AI-formatted content structure
+function renderFormattedContent(data) {
+    if (!data || !data.sections) {
+        return '<p class="empty-state">No formatted content available</p>';
+    }
+
+    let html = '<div class="ai-formatted-content">';
+
+    // Render sections
+    for (const section of data.sections) {
+        html += '<div class="formatted-section">';
+        if (section.heading) {
+            html += `<h3 class="section-heading">${escapeHtml(section.heading)}</h3>`;
+        }
+        if (section.content) {
+            html += `<p class="section-content">${escapeHtml(section.content)}</p>`;
+        }
+        if (section.bullets && section.bullets.length > 0) {
+            html += '<ul class="section-bullets">';
+            for (const bullet of section.bullets) {
+                html += `<li>${escapeHtml(bullet)}</li>`;
+            }
+            html += '</ul>';
+        }
+        html += '</div>';
+    }
+
+    // Render key takeaways
+    if (data.key_takeaways && data.key_takeaways.length > 0) {
+        html += '<div class="key-takeaways">';
+        html += '<h4>Key Takeaways</h4>';
+        html += '<ul>';
+        for (const takeaway of data.key_takeaways) {
+            html += `<li>${escapeHtml(takeaway)}</li>`;
+        }
+        html += '</ul>';
+        html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+}
+
+// Toggle speech for lesson content
+function toggleLessonSpeech(itemId, button) {
+    const bodyEl = document.getElementById(`lesson-body-${itemId}`);
+    if (!bodyEl) return;
+
+    // If already speaking, stop
+    if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        button.textContent = '🔊 Listen';
+        button.classList.remove('speaking', 'paused');
+        hideFloatingSpeechControls();
+        return;
+    }
+
+    // Get text content from the lesson body
+    const text = bodyEl.textContent || '';
+    if (!text.trim()) {
+        showToast('No content to read', 'error');
+        return;
+    }
+
+    // Use the speakText function with the lesson content
+    speakText(text, button, bodyEl);
 }
 
 // Fix encoding issues in content (using Unicode escapes for reliability)
@@ -4447,6 +4749,13 @@ function formatLessonContent(content) {
     text = text.replace(/^—\s*/gm, '• ');
     text = text.replace(/\n—\s*/g, '\n• ');
 
+    // If content has very few line breaks, try to add paragraph breaks
+    const lineCount = (text.match(/\n/g) || []).length;
+    if (lineCount < 3 && text.length > 500) {
+        // Split into sentences and group into paragraphs (3-4 sentences each)
+        text = text.replace(/([.!?])\s+(?=[A-Z])/g, '$1\n\n');
+    }
+
     // Escape HTML
     text = escapeHtml(text);
 
@@ -4454,39 +4763,87 @@ function formatLessonContent(content) {
     const lines = text.split('\n');
     const result = [];
     let inList = false;
+    let inNumberedList = false;
+    let currentSection = [];
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
+
         if (!line) {
+            // Close any open lists
             if (inList) {
                 result.push('</ul>');
                 inList = false;
             }
+            if (inNumberedList) {
+                result.push('</ol>');
+                inNumberedList = false;
+            }
             continue;
         }
 
+        // Check for heading patterns (ALL CAPS, ends with colon, or short standalone lines)
+        const isHeading = (
+            (line === line.toUpperCase() && line.length > 3 && line.length < 60 && !/^\d/.test(line)) ||
+            (line.endsWith(':') && line.length < 80 && !line.includes('. ')) ||
+            (i > 0 && lines[i-1].trim() === '' && line.length < 60 && !line.match(/^[\u2022\u2023\-\*\d]/) && (i + 1 >= lines.length || lines[i+1].trim() === '' || lines[i+1].trim().match(/^[\u2022\u2023\-\*\d]/)))
+        );
+
         // Check if line starts with bullet character
         const bulletMatch = line.match(/^[\u2022\u2023\u2043\u25e6\u00b7\-\*]\s*(.+)/);
+        // Check for numbered list (1. or 1) format)
+        const numberedMatch = line.match(/^(\d+)[.\)]\s*(.+)/);
+
         if (bulletMatch) {
+            if (inNumberedList) {
+                result.push('</ol>');
+                inNumberedList = false;
+            }
             if (!inList) {
                 result.push('<ul class="content-list">');
                 inList = true;
             }
             result.push(`<li>${bulletMatch[1]}</li>`);
+        } else if (numberedMatch) {
+            if (inList) {
+                result.push('</ul>');
+                inList = false;
+            }
+            if (!inNumberedList) {
+                result.push('<ol class="content-list numbered">');
+                inNumberedList = true;
+            }
+            result.push(`<li>${numberedMatch[2]}</li>`);
+        } else if (isHeading) {
+            if (inList) {
+                result.push('</ul>');
+                inList = false;
+            }
+            if (inNumberedList) {
+                result.push('</ol>');
+                inNumberedList = false;
+            }
+            // Remove trailing colon for cleaner heading
+            const headingText = line.endsWith(':') ? line.slice(0, -1) : line;
+            result.push(`<h4 class="content-heading">${headingText}</h4>`);
         } else {
             if (inList) {
                 result.push('</ul>');
                 inList = false;
             }
+            if (inNumberedList) {
+                result.push('</ol>');
+                inNumberedList = false;
+            }
             result.push(`<p>${line}</p>`);
         }
     }
 
-    if (inList) {
-        result.push('</ul>');
-    }
+    // Close any remaining open lists
+    if (inList) result.push('</ul>');
+    if (inNumberedList) result.push('</ol>');
 
-    return result.join('');
+    return `<div class="formatted-content">${result.join('')}</div>`;
 }
 
 // Quiz state tracking - persists answers across navigation
@@ -4889,11 +5246,6 @@ function formatAILessonContent(aiContent, itemId) {
 
     let html = '<div class="ai-lesson-content">';
 
-    // Summary
-    if (aiContent.summary) {
-        html += `<div class="ai-lesson-summary">${escapeHtml(aiContent.summary)}</div>`;
-    }
-
     // Main content
     if (aiContent.content) {
         const content = escapeHtml(aiContent.content);
@@ -4967,146 +5319,8 @@ function formatAILessonContent(aiContent, itemId) {
 
 // Open lesson content
 function openLesson(itemId) {
-    if (!currentCourse) return;
-
-    const item = currentCourse.items.find(i => i.id === itemId);
-    if (!item) return;
-
-    const index = currentCourse.items.findIndex(i => i.id === itemId);
-    currentLessonId = itemId;
-
-    // Update lesson list active state
-    if (elements.lessonList) {
-        elements.lessonList.querySelectorAll('.lesson-item').forEach(el => {
-            el.classList.toggle('active', parseInt(el.dataset.id) === itemId);
-        });
-    }
-
-    // Check if this is AI-generated content (lesson or question)
-    let aiContent = null;
-    if (item.instructor_notes) {
-        try {
-            aiContent = JSON.parse(item.instructor_notes);
-            // Accept both ai_generated lessons and question type content
-            if (!aiContent.ai_generated && aiContent.type !== 'question') {
-                aiContent = null;
-            }
-        } catch (e) {
-            aiContent = null;
-        }
-    }
-
-    // Check if this is a quiz question
-    const isQuizQuestion = aiContent && aiContent.type === 'question';
-
-    // Hide/show lesson header based on content type
-    const lessonHeader = document.querySelector('.lesson-detail-header');
-    if (lessonHeader) {
-        if (isQuizQuestion) {
-            lessonHeader.style.display = 'none';
-        } else {
-            lessonHeader.style.display = '';
-
-            // Update lesson number
-            if (elements.lessonNumber) {
-                elements.lessonNumber.textContent = index + 1;
-            }
-
-            // Update lesson title
-            if (elements.lessonTitle) {
-                elements.lessonTitle.textContent = aiContent ? aiContent.title : item.page_title;
-            }
-
-            // Update source link
-            if (elements.lessonSourceLink) {
-                if (item.page_url) {
-                    if (item.page_url.startsWith('file://')) {
-                        // Local file - change to view content button
-                        elements.lessonSourceLink.href = '#';
-                        elements.lessonSourceLink.textContent = 'View Source Content';
-                        elements.lessonSourceLink.onclick = (e) => {
-                            e.preventDefault();
-                            viewLocalDocument(item.page_url);
-                        };
-                        elements.lessonSourceLink.style.display = '';
-                    } else {
-                        // Remote URL - normal link
-                        elements.lessonSourceLink.href = item.page_url;
-                        elements.lessonSourceLink.textContent = 'View Original';
-                        elements.lessonSourceLink.onclick = null;
-                        elements.lessonSourceLink.style.display = '';
-                    }
-                } else {
-                    elements.lessonSourceLink.style.display = 'none';
-                }
-            }
-        }
-    }
-
-    // Update lesson content
-    if (elements.lessonPageContent) {
-        if (aiContent) {
-            // Check if this is a quiz (question-type course with multiple choice)
-            if (aiContent.type === 'question') {
-                // Check if it's new format (has options array)
-                const isNewFormat = aiContent.options && aiContent.options.length === 4;
-
-                if (isNewFormat) {
-                    // Initialize quiz state if needed
-                    const questionItems = currentCourse.items.filter(i => {
-                        try {
-                            const data = JSON.parse(i.instructor_notes || '{}');
-                            return data.type === 'question' && data.options && data.options.length === 4;
-                        } catch { return false; }
-                    });
-                    initQuizState(currentCourse.id, questionItems.length, questionItems);
-                } else {
-                    // Hide score bar for old format
-                    const scoreBar = document.getElementById('quiz-score-bar');
-                    if (scoreBar) scoreBar.style.display = 'none';
-                }
-            }
-            // Display AI-generated content with nice formatting
-            elements.lessonPageContent.innerHTML = formatAILessonContent(aiContent, itemId);
-        } else {
-            // Display scraped page content
-            elements.lessonPageContent.innerHTML = formatLessonContent(item.page_content);
-            // Hide quiz score bar for non-quiz content
-            const scoreBar = document.getElementById('quiz-score-bar');
-            if (scoreBar) scoreBar.style.display = 'none';
-        }
-    }
-
-    // Update notes
-    if (elements.learnerNotes) {
-        elements.learnerNotes.value = item.learner_notes || '';
-    }
-    if (elements.notesSaveStatus) {
-        elements.notesSaveStatus.textContent = '';
-        elements.notesSaveStatus.className = 'notes-status';
-    }
-
-    // Hide/show navigation and mark complete based on content type
-    const lessonActions = document.querySelector('.lesson-actions');
-    if (lessonActions) {
-        if (isQuizQuestion) {
-            lessonActions.style.display = 'none';
-        } else {
-            lessonActions.style.display = '';
-            // Update mark complete button
-            updateMarkCompleteButton(item.completed);
-            // Update nav button states
-            updateLessonNavButtons();
-        }
-    }
-
-    // Show lesson content
-    if (elements.lessonContent) {
-        elements.lessonContent.classList.remove('hidden');
-    }
-
-    // Update resume position
-    setResumePosition(itemId);
+    // Use accordion toggle instead of separate panel
+    toggleAccordion(itemId);
 }
 
 // Navigate lessons
@@ -5206,40 +5420,32 @@ function handleNotesChange() {
     notesTimeout = setTimeout(saveNotes, 1000);
 }
 
-// Save learner notes
-async function saveNotes() {
-    if (!currentCourse || !currentLessonId) return;
-
-    const notes = elements.learnerNotes ? elements.learnerNotes.value : '';
+// Save learner notes (for specific item)
+async function saveLearnerNotes(itemId, notes) {
+    if (!currentCourse) return;
 
     try {
-        await apiRequest(`/courses/${currentCourse.id}/items/${currentLessonId}/notes`, {
+        await apiRequest(`/courses/${currentCourse.id}/items/${itemId}/notes`, {
             method: 'PUT',
             body: JSON.stringify({ notes })
         });
 
         // Update local state
-        const item = currentCourse.items.find(i => i.id === currentLessonId);
+        const item = currentCourse.items.find(i => i.id === itemId);
         if (item) {
             item.learner_notes = notes;
         }
-
-        if (elements.notesSaveStatus) {
-            elements.notesSaveStatus.textContent = 'Saved';
-            elements.notesSaveStatus.className = 'notes-status saved';
-            setTimeout(() => {
-                if (elements.notesSaveStatus) {
-                    elements.notesSaveStatus.textContent = '';
-                }
-            }, 2000);
-        }
     } catch (error) {
         console.error('Failed to save notes:', error);
-        if (elements.notesSaveStatus) {
-            elements.notesSaveStatus.textContent = 'Failed to save';
-            elements.notesSaveStatus.className = 'notes-status';
-        }
     }
+}
+
+// Save learner notes (legacy - for old panel UI)
+async function saveNotes() {
+    if (!currentCourse || !currentLessonId) return;
+
+    const notes = elements.learnerNotes ? elements.learnerNotes.value : '';
+    saveLearnerNotes(currentLessonId, notes);
 }
 
 // Set resume position

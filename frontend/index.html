@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=54">
+    <link rel="stylesheet" href="/static/css/styles.css?v=64">
 </head>
 <body>
     <!-- Loading Overlay -->
@@ -70,16 +70,6 @@
                 <div class="course-list" id="course-list">
                     <!-- Course roadmap will be populated by JavaScript -->
                     <p class="empty-state">No learning journeys yet</p>
-                </div>
-            </div>
-            <div class="sidebar-section community-section">
-                <div class="sidebar-header">
-                    <h2>Community Insights</h2>
-                    <button id="refresh-community-btn" class="btn-icon" title="Refresh">🔄</button>
-                </div>
-                <div class="community-insights" id="community-insights">
-                    <!-- Community insights will be populated by JavaScript -->
-                    <p class="empty-state">Loading community data...</p>
                 </div>
             </div>
         </aside>
@@ -591,44 +581,8 @@
             </div>
         </div>
 
-        <div class="course-content-area">
-            <div class="lesson-list" id="lesson-list">
-                <!-- Lessons will be populated by JavaScript -->
-            </div>
-
-            <div class="lesson-detail hidden" id="lesson-content">
-                <div class="lesson-detail-header">
-                    <div class="lesson-detail-title">
-                        <span class="lesson-number" id="lesson-number">1</span>
-                        <h3 id="lesson-title">Lesson Title</h3>
-                    </div>
-                    <a id="lesson-source-link" href="#" target="_blank" class="btn btn-small btn-secondary">View Original</a>
-                </div>
-
-                <div class="quiz-score-bar" id="quiz-score-bar" style="display: none;">
-                    <!-- Quiz score will be populated by JavaScript -->
-                </div>
-
-                <div class="lesson-detail-content" id="lesson-page-content">
-                    <!-- Formatted page content -->
-                </div>
-
-                <div class="lesson-notes-section collapsed">
-                    <h4 class="notes-toggle" onclick="toggleNotesSection(this)">
-                        <span class="toggle-icon">▶</span> My Notes
-                    </h4>
-                    <div class="notes-content">
-                        <textarea id="learner-notes" placeholder="Take notes as you learn..." rows="3"></textarea>
-                        <span id="notes-save-status" class="notes-status"></span>
-                    </div>
-                </div>
-
-                <div class="lesson-actions">
-                    <button id="prev-lesson-btn" class="btn btn-secondary">< Previous</button>
-                    <button id="mark-complete-btn" class="btn btn-primary btn-large">Mark Complete</button>
-                    <button id="next-lesson-btn" class="btn btn-secondary">Next ></button>
-                </div>
-            </div>
+        <div class="lesson-accordion" id="lesson-list">
+            <!-- Accordion lessons will be populated by JavaScript -->
         </div>
     </div>
 
@@ -643,6 +597,6 @@
         <button id="floating-stop-btn" class="floating-speech-btn" title="Stop">⏹️</button>
     </div>
 
-    <script src="/static/js/app.js?v=71"></script>
+    <script src="/static/js/app.js?v=81"></script>
 </body>
 </html>

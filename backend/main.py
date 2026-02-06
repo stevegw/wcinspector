@@ -1385,6 +1385,41 @@ async def get_course(course_id: int):
         db.close()
 
 
+@app.post("/api/lessons/format")
+async def format_lesson(page_id: int):
+    """Format lesson content using AI for better readability"""
+    from database import SessionLocal, ScrapedPage, Setting
+    from rag import format_lesson_content
+
+    db = SessionLocal()
+    try:
+        page = db.query(ScrapedPage).filter(ScrapedPage.id == page_id).first()
+        if not page:
+            return JSONResponse(status_code=404, content={"error": "Page not found"})
+
+        if not page.content:
+            return {"error": "Page has no content to format"}
+
+        # Get LLM settings
+        provider_setting = db.query(Setting).filter(Setting.key == "llm_provider").first()
+        groq_model_setting = db.query(Setting).filter(Setting.key == "groq_model").first()
+
+        provider = provider_setting.value if provider_setting else "groq"
+        groq_model = groq_model_setting.value if groq_model_setting else None
+
+        result = await format_lesson_content(
+            content=page.content,
+            title=page.title or "Lesson",
+            provider=provider,
+            groq_model=groq_model
+        )
+
+        return result
+
+    finally:
+        db.close()
+
+
 @app.post("/api/courses")
 async def create_course(course_data: CourseCreate):
     """Create a new course"""
@@ -2129,15 +2164,18 @@ async def get_popular_community_questions(
     category: str = None,
     limit: int = Query(default=10, le=50)
 ):
-    """Get popular community questions sorted by answer count and solution presence"""
+    """Get popular community questions sorted by solution presence and engagement"""
     from database import SessionLocal, ScrapedPage
 
     db = SessionLocal()
     try:
-        # Query community Q&A pages
+        # Query community Q&A pages - must have a title
         query = db.query(ScrapedPage).filter(
             ScrapedPage.topic == "Q&A",
-            ScrapedPage.category.in_(["community-windchill", "community-creo"])
+            ScrapedPage.category.in_(["community-windchill", "community-creo"]),
+            ScrapedPage.title.isnot(None),
+            ScrapedPage.title != "",
+            ScrapedPage.title != "Untitled"
         )
 
         if category:
@@ -2146,28 +2184,35 @@ async def get_popular_community_questions(
             elif category in ["creo", "community-creo"]:
                 query = query.filter(ScrapedPage.category == "community-creo")
 
-        # Order by content length as proxy for engagement (longer = more answers)
-        # Note: has_solution and answer_count are in content, not separate columns
-        pages = query.order_by(ScrapedPage.scraped_at.desc()).limit(limit * 2).all()
+        # Fetch more than needed so we can filter and sort
+        pages = query.order_by(ScrapedPage.scraped_at.desc()).limit(limit * 4).all()
 
-        # Parse and sort by answer indicators in content
+        # Parse and filter for quality
         results = []
         for page in pages:
+            # Skip if title looks like garbage (too short or generic)
+            title = (page.title or "").strip()
+            if len(title) < 10 or title.lower() in ["question", "help", "issue", "problem"]:
+                continue
+
             has_solution = "Accepted Solution:" in (page.content or "")
-            # Count "Answer" occurrences as proxy for answer count
-            answer_count = (page.content or "").count("Answer ")
+            # Better answer counting - look for reply patterns
+            content = page.content or ""
+            answer_count = content.count("Reply ") + content.count("replies")
+            if answer_count == 0:
+                answer_count = content.count("Answer ")
 
             results.append({
                 "id": page.id,
-                "title": page.title,
+                "title": title,
                 "url": page.url,
                 "category": page.category,
                 "has_solution": has_solution,
-                "answer_count": answer_count,
+                "answer_count": min(answer_count, 99),  # Cap at 99
                 "scraped_at": page.scraped_at.isoformat() if page.scraped_at else None
             })
 
-        # Sort by has_solution (True first), then answer_count
+        # Sort: solved first, then by answer count
         results.sort(key=lambda x: (-x["has_solution"], -x["answer_count"]))
         return {"questions": results[:limit]}
 
