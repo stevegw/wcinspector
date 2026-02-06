@@ -34,12 +34,25 @@ let notesTimeout = null;  // Debounce timer for auto-save notes
 let speechSynthesis = window.speechSynthesis;
 let currentUtterance = null;
 let isSpeaking = false;
+let isPaused = false;
 let availableVoices = [];
 let voiceSettings = {
     voiceName: '',
     rate: 1.0,
     pitch: 1.0
 };
+
+// Speech highlighting state
+let speechHighlightContainer = null;
+let speechWordSpans = [];
+let currentSpeechWordIndex = -1;
+let originalSpeechContent = '';
+let speechHighlightInterval = null;
+let speechStartTime = 0;
+let speechPausedTime = 0;
+let speechPausedElapsed = 0;
+let speechStartWordIndex = 0;
+let isRestartingSpeech = false;
 
 // DOM Elements
 const elements = {
@@ -78,6 +91,9 @@ const elements = {
     speechRateValue: document.getElementById('speech-rate-value'),
     speechPitch: document.getElementById('speech-pitch'),
     speechPitchValue: document.getElementById('speech-pitch-value'),
+    floatingSpeechControls: document.getElementById('floating-speech-controls'),
+    floatingPauseBtn: document.getElementById('floating-pause-btn'),
+    floatingStopBtn: document.getElementById('floating-stop-btn'),
     copyBtn: document.getElementById('copy-btn'),
     rerunBtn: document.getElementById('rerun-btn'),
     moreBtn: document.getElementById('more-btn'),
@@ -332,6 +348,13 @@ function setupEventListeners() {
     elements.voiceSelect.addEventListener('change', handleVoiceChange);
     elements.speechRate.addEventListener('input', handleRateChange);
     elements.speechPitch.addEventListener('input', handlePitchChange);
+
+    // Floating speech controls
+    elements.floatingPauseBtn.addEventListener('click', toggleFloatingPause);
+    elements.floatingStopBtn.addEventListener('click', () => {
+        stopSpeech();
+        hideFloatingSpeechControls();
+    });
 
     // Close voice settings when clicking outside
     document.addEventListener('click', (e) => {
@@ -908,8 +931,9 @@ function initProcedureTracker(container) {
 }
 
 function displayAnswer(data, questionText = null) {
-    // Stop any ongoing speech when showing new answer
+    // Stop any ongoing speech and fully clear previous speech setup
     stopSpeech();
+    clearSpeechHighlightFully();
 
     elements.loadingState.classList.add('hidden');
     elements.answerDisplay.classList.remove('hidden');
@@ -940,6 +964,12 @@ function displayAnswer(data, questionText = null) {
     if (steps) {
         initProcedureTracker(elements.answerText);
     }
+
+    // Prepare text for speech - wrap words in clickable spans
+    // Use a small delay to ensure DOM is fully rendered
+    setTimeout(() => {
+        prepareTextForSpeech(elements.answerText);
+    }, 100);
 
     // Display pro tips
     if (data.pro_tips && data.pro_tips.length > 0) {
@@ -1131,15 +1161,60 @@ function toggleSpeech() {
         return;
     }
 
-    if (isSpeaking) {
-        stopSpeech();
+    if (isSpeaking && !isPaused) {
+        // Currently speaking -> Pause
+        pauseSpeech();
+    } else if (isSpeaking && isPaused) {
+        // Currently paused -> Resume
+        resumeSpeech();
     } else {
+        // Not speaking -> Start
         startSpeech();
     }
 }
 
+function pauseSpeech() {
+    if (speechSynthesis && isSpeaking) {
+        speechSynthesis.pause();
+        isPaused = true;
+        // Track when we paused for time-based highlighting
+        speechPausedTime = Date.now();
+        speechPausedElapsed = speechPausedTime - speechStartTime;
+        updateListenButton();
+    }
+}
+
+function resumeSpeech() {
+    if (speechSynthesis && isPaused) {
+        speechSynthesis.resume();
+        isPaused = false;
+        // Adjust start time to account for pause duration
+        speechStartTime = Date.now() - speechPausedElapsed;
+        updateListenButton();
+    }
+}
+
 function startSpeech() {
-    const text = elements.answerText.textContent;
+    const container = elements.answerText;
+    if (!container) {
+        showToast('No answer to read', 'warning');
+        return;
+    }
+
+    // Prepare text if not already prepared
+    prepareTextForSpeech(container);
+
+    // Get text from all word spans, skipping collapsed content
+    let text;
+    if (speechWordSpans.length > 0) {
+        text = speechWordSpans
+            .filter(span => !isInsideCollapsedContent(span))
+            .map(span => span.textContent)
+            .join(' ');
+    } else {
+        text = container.textContent;
+    }
+
     if (!text || text.trim() === '') {
         showToast('No answer to read', 'warning');
         return;
@@ -1174,18 +1249,29 @@ function startSpeech() {
     // Event handlers
     currentUtterance.onstart = () => {
         isSpeaking = true;
+        isPaused = false;
         updateListenButton();
+        // Start time-based highlighting
+        startTimeBasedHighlighting(text, voiceSettings.rate);
     };
 
     currentUtterance.onend = () => {
         isSpeaking = false;
+        isPaused = false;
         updateListenButton();
+        // Clear highlighting after a brief delay to show final word
+        setTimeout(clearSpeechHighlight, 300);
     };
 
     currentUtterance.onerror = (event) => {
+        // Don't clear state if we're restarting speech (e.g., user clicked a word)
+        if (isRestartingSpeech) return;
+
         console.error('Speech error:', event.error);
         isSpeaking = false;
+        isPaused = false;
         updateListenButton();
+        clearSpeechHighlight();
         if (event.error !== 'canceled' && event.error !== 'interrupted') {
             showToast('Speech error: ' + event.error, 'error');
         }
@@ -1199,32 +1285,413 @@ function stopSpeech() {
         speechSynthesis.cancel();
     }
     isSpeaking = false;
+    isPaused = false;
     updateListenButton();
+    clearSpeechHighlight();
 }
 
 function updateListenButton() {
     if (!elements.listenBtn) return;
 
     const icon = elements.listenBtn.querySelector('.icon');
-    if (isSpeaking) {
-        icon.textContent = '⏹️';
-        elements.listenBtn.title = 'Stop listening';
+    if (isSpeaking && !isPaused) {
+        // Speaking -> show pause icon
+        icon.textContent = '⏸️';
+        elements.listenBtn.title = 'Pause';
         elements.listenBtn.classList.add('speaking');
+        elements.listenBtn.classList.remove('paused');
+        showFloatingSpeechControls();
+        updateFloatingPauseButton();
+    } else if (isSpeaking && isPaused) {
+        // Paused -> show play/resume icon
+        icon.textContent = '▶️';
+        elements.listenBtn.title = 'Resume';
+        elements.listenBtn.classList.remove('speaking');
+        elements.listenBtn.classList.add('paused');
+        showFloatingSpeechControls();
+        updateFloatingPauseButton();
     } else {
+        // Stopped -> show speaker icon
         icon.textContent = '🔊';
         elements.listenBtn.title = 'Listen to answer';
-        elements.listenBtn.classList.remove('speaking');
+        elements.listenBtn.classList.remove('speaking', 'paused');
+        hideFloatingSpeechControls();
     }
 }
 
-// Generic speech function for any element
-function speakText(text, button = null) {
+// Floating speech controls
+function showFloatingSpeechControls() {
+    if (elements.floatingSpeechControls) {
+        elements.floatingSpeechControls.classList.remove('hidden');
+    }
+}
+
+function hideFloatingSpeechControls() {
+    if (elements.floatingSpeechControls) {
+        elements.floatingSpeechControls.classList.add('hidden');
+    }
+}
+
+function updateFloatingPauseButton() {
+    if (!elements.floatingPauseBtn) return;
+    if (isPaused) {
+        elements.floatingPauseBtn.textContent = '▶️';
+        elements.floatingPauseBtn.title = 'Resume';
+    } else {
+        elements.floatingPauseBtn.textContent = '⏸️';
+        elements.floatingPauseBtn.title = 'Pause';
+    }
+}
+
+function toggleFloatingPause() {
+    if (isSpeaking && !isPaused) {
+        pauseSpeech();
+    } else if (isSpeaking && isPaused) {
+        resumeSpeech();
+    }
+}
+
+// Speech highlighting functions
+function prepareSpeechHighlight(containerElement) {
+    if (!containerElement) return '';
+
+    speechHighlightContainer = containerElement;
+    originalSpeechContent = containerElement.innerHTML;
+
+    // Get plain text content for speech
+    const textContent = containerElement.textContent;
+
+    // Walk the DOM tree and wrap words in spans while preserving structure
+    let charIndex = 0;
+    const textNodes = [];
+
+    // Collect all text nodes
+    const walker = document.createTreeWalker(
+        containerElement,
+        NodeFilter.SHOW_TEXT,
+        null,
+        false
+    );
+
+    let node;
+    while (node = walker.nextNode()) {
+        textNodes.push(node);
+    }
+
+    // Process each text node - wrap words in spans
+    textNodes.forEach(textNode => {
+        const text = textNode.textContent;
+        if (!text.trim()) {
+            // Just whitespace, update char index and skip
+            charIndex += text.length;
+            return;
+        }
+
+        // Skip text inside collapsed/hidden content
+        const hiddenParent = textNode.parentNode.closest('.step-details:not(.expanded), [hidden], .hidden, .step-expand');
+        if (hiddenParent) {
+            charIndex += text.length;
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        let i = 0;
+
+        while (i < text.length) {
+            const char = text[i];
+            if (/\s/.test(char)) {
+                // Whitespace - add as text node
+                let whitespace = '';
+                while (i < text.length && /\s/.test(text[i])) {
+                    whitespace += text[i];
+                    charIndex++;
+                    i++;
+                }
+                fragment.appendChild(document.createTextNode(whitespace));
+            } else {
+                // Word - wrap in span
+                const wordStart = charIndex;
+                let word = '';
+                while (i < text.length && !/\s/.test(text[i])) {
+                    word += text[i];
+                    charIndex++;
+                    i++;
+                }
+                const span = document.createElement('span');
+                span.className = 'speech-word';
+                span.dataset.start = wordStart;
+                span.dataset.end = charIndex;
+                span.textContent = word;
+                fragment.appendChild(span);
+            }
+        }
+
+        // Replace the text node with our fragment
+        textNode.parentNode.replaceChild(fragment, textNode);
+    });
+
+    speechWordSpans = Array.from(containerElement.querySelectorAll('.speech-word'));
+    currentSpeechWordIndex = -1;
+    speechStartWordIndex = 0;
+
+    // Add click handlers to allow starting from any word
+    speechWordSpans.forEach((span, index) => {
+        span.style.cursor = 'pointer';
+        span.addEventListener('click', (e) => {
+            // Don't intercept clicks on interactive elements
+            const target = e.target;
+            const interactiveParent = target.closest('button, a, .step-expand, summary, [onclick]');
+            if (interactiveParent) {
+                // Let the click bubble up to the interactive element
+                return;
+            }
+
+            // Don't start speech if clicking inside collapsed content
+            const collapsedParent = target.closest('.step-details:not(.expanded), [hidden], .hidden');
+            if (collapsedParent) {
+                return;
+            }
+
+            e.stopPropagation();
+            startSpeechFromWord(index);
+        });
+    });
+
+    return textContent;
+}
+
+function highlightSpeechWord(charIndex) {
+    if (!speechWordSpans.length) return;
+
+    // Find the word span containing this character index
+    for (let i = 0; i < speechWordSpans.length; i++) {
+        const span = speechWordSpans[i];
+        const start = parseInt(span.dataset.start, 10);
+        const end = parseInt(span.dataset.end, 10);
+
+        if (charIndex >= start && charIndex < end) {
+            highlightWordByIndex(i);
+            return;
+        }
+    }
+}
+
+function highlightWordByIndex(index) {
+    if (!speechWordSpans.length || index < 0 || index >= speechWordSpans.length) return;
+
+    // Remove previous highlight
+    if (currentSpeechWordIndex >= 0 && speechWordSpans[currentSpeechWordIndex]) {
+        speechWordSpans[currentSpeechWordIndex].classList.remove('speech-highlight');
+    }
+
+    // Add new highlight
+    const span = speechWordSpans[index];
+    span.classList.add('speech-highlight');
+    currentSpeechWordIndex = index;
+
+    // No auto-scroll - let user control scrolling
+}
+
+function startTimeBasedHighlighting(text, rate, fromWordIndex = 0) {
+    if (!speechWordSpans.length) return;
+
+    // Stop any existing interval
+    stopTimeBasedHighlighting();
+
+    // Build array of visible word indices (not inside collapsed content)
+    const visibleWordIndices = [];
+    for (let i = fromWordIndex; i < speechWordSpans.length; i++) {
+        if (!isInsideCollapsedContent(speechWordSpans[i])) {
+            visibleWordIndices.push(i);
+        }
+    }
+
+    if (visibleWordIndices.length === 0) return;
+
+    // Estimate words per minute based on rate (average ~150 WPM at rate 1.0)
+    const wordsPerMinute = 150 * rate;
+    const msPerWord = 60000 / wordsPerMinute;
+
+    speechStartTime = Date.now();
+    speechStartWordIndex = fromWordIndex;
+    currentSpeechWordIndex = -1;
+
+    // Highlight first visible word immediately
+    highlightWordByIndex(visibleWordIndices[0]);
+
+    // Set interval to advance highlighting
+    let visibleWordPosition = 0;
+    speechHighlightInterval = setInterval(() => {
+        if (isPaused) return; // Don't advance while paused
+
+        const elapsed = Date.now() - speechStartTime;
+        const wordsFromStart = Math.floor(elapsed / msPerWord);
+
+        if (wordsFromStart >= visibleWordIndices.length) {
+            // Reached the end
+            stopTimeBasedHighlighting();
+            return;
+        }
+
+        if (wordsFromStart !== visibleWordPosition) {
+            visibleWordPosition = wordsFromStart;
+            highlightWordByIndex(visibleWordIndices[visibleWordPosition]);
+        }
+    }, 50); // Check every 50ms for smooth updates
+}
+
+// Check if an element is inside collapsed/hidden content
+function isInsideCollapsedContent(element) {
+    return element.closest('.step-details:not(.expanded), [hidden], .hidden');
+}
+
+// Start speech from a specific word (when user clicks on text)
+function startSpeechFromWord(wordIndex) {
+    if (!speechWordSpans.length || wordIndex < 0 || wordIndex >= speechWordSpans.length) return;
+
+    // Build text from the clicked word to the end, skipping collapsed content
+    let textFromWord = '';
+    let actualStartIndex = wordIndex;
+    let foundStart = false;
+
+    for (let i = wordIndex; i < speechWordSpans.length; i++) {
+        // Skip words inside collapsed content
+        if (isInsideCollapsedContent(speechWordSpans[i])) {
+            if (!foundStart) actualStartIndex = i + 1;
+            continue;
+        }
+        foundStart = true;
+        if (textFromWord) textFromWord += ' ';
+        textFromWord += speechWordSpans[i].textContent;
+    }
+
+    if (!textFromWord.trim()) return;
+    wordIndex = actualStartIndex;
+
+    // Set flag to prevent error handlers from clearing state
+    isRestartingSpeech = true;
+
+    // Stop any current speech
+    if (speechSynthesis) {
+        speechSynthesis.cancel();
+    }
+    stopTimeBasedHighlighting();
+
+    // Clear the flag after a brief delay
+    setTimeout(() => { isRestartingSpeech = false; }, 100);
+
+    // Create and configure the utterance
+    currentUtterance = new SpeechSynthesisUtterance(textFromWord);
+    currentUtterance.rate = voiceSettings.rate;
+    currentUtterance.pitch = voiceSettings.pitch;
+    currentUtterance.volume = 1.0;
+
+    // Apply voice
+    if (voiceSettings.voiceName) {
+        const selectedVoice = availableVoices.find(v => v.name === voiceSettings.voiceName);
+        if (selectedVoice) {
+            currentUtterance.voice = selectedVoice;
+        }
+    } else {
+        const englishVoice = availableVoices.find(v => v.lang.startsWith('en') && v.localService) ||
+                             availableVoices.find(v => v.lang.startsWith('en')) ||
+                             availableVoices[0];
+        if (englishVoice) {
+            currentUtterance.voice = englishVoice;
+        }
+    }
+
+    // Event handlers
+    currentUtterance.onstart = () => {
+        isSpeaking = true;
+        isPaused = false;
+        updateListenButton();
+        startTimeBasedHighlighting(textFromWord, voiceSettings.rate, wordIndex);
+    };
+
+    currentUtterance.onend = () => {
+        isSpeaking = false;
+        isPaused = false;
+        updateListenButton();
+        setTimeout(clearSpeechHighlight, 300);
+    };
+
+    currentUtterance.onerror = (event) => {
+        // Don't clear state if we're restarting speech (e.g., user clicked a word)
+        if (isRestartingSpeech) return;
+
+        console.error('Speech error:', event.error);
+        isSpeaking = false;
+        isPaused = false;
+        updateListenButton();
+        clearSpeechHighlight();
+        if (event.error !== 'canceled' && event.error !== 'interrupted') {
+            showToast('Speech error: ' + event.error, 'error');
+        }
+    };
+
+    speechSynthesis.speak(currentUtterance);
+}
+
+function stopTimeBasedHighlighting() {
+    if (speechHighlightInterval) {
+        clearInterval(speechHighlightInterval);
+        speechHighlightInterval = null;
+    }
+}
+
+function clearSpeechHighlight() {
+    stopTimeBasedHighlighting();
+    // Just remove the highlight class, don't restore original HTML
+    // This keeps words clickable for starting speech from any point
+    if (currentSpeechWordIndex >= 0 && speechWordSpans[currentSpeechWordIndex]) {
+        speechWordSpans[currentSpeechWordIndex].classList.remove('speech-highlight');
+    }
+    currentSpeechWordIndex = -1;
+}
+
+function clearSpeechHighlightFully() {
+    stopTimeBasedHighlighting();
+    if (speechHighlightContainer && originalSpeechContent) {
+        speechHighlightContainer.innerHTML = originalSpeechContent;
+    }
+    speechHighlightContainer = null;
+    speechWordSpans = [];
+    currentSpeechWordIndex = -1;
+    originalSpeechContent = '';
+}
+
+// Prepare text for speech (wrap words in clickable spans) without starting speech
+function prepareTextForSpeech(containerElement) {
+    if (!containerElement) return;
+
+    // Don't re-prepare if already prepared
+    if (speechHighlightContainer === containerElement && speechWordSpans.length > 0) {
+        return;
+    }
+
+    // Clear any previous preparation
+    if (speechHighlightContainer && speechHighlightContainer !== containerElement) {
+        clearSpeechHighlightFully();
+    }
+
+    prepareSpeechHighlight(containerElement);
+}
+
+// Generic speech function for any element with optional highlighting
+function speakText(text, button = null, containerElement = null) {
     if (!speechSynthesis) {
         showToast('Text-to-speech not supported in this browser', 'error');
         return;
     }
 
-    if (!text || text.trim() === '') {
+    // Prepare highlighting if container provided
+    let speakableText = text;
+    if (containerElement) {
+        speakableText = prepareSpeechHighlight(containerElement);
+    }
+
+    if (!speakableText || speakableText.trim() === '') {
         showToast('No text to read', 'warning');
         return;
     }
@@ -1232,7 +1699,7 @@ function speakText(text, button = null) {
     // Cancel any ongoing speech
     speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(text);
+    const utterance = new SpeechSynthesisUtterance(speakableText);
 
     // Apply voice settings
     utterance.rate = voiceSettings.rate;
@@ -1254,33 +1721,50 @@ function speakText(text, button = null) {
         }
     }
 
+    // Update button state helper
+    const updateButtonState = (state) => {
+        if (!button) return;
+        if (state === 'speaking') {
+            button.textContent = '⏸️ Pause';
+            button.classList.add('speaking');
+            button.classList.remove('paused');
+        } else if (state === 'paused') {
+            button.textContent = '▶️ Resume';
+            button.classList.remove('speaking');
+            button.classList.add('paused');
+        } else {
+            button.textContent = '🔊 Listen';
+            button.classList.remove('speaking', 'paused');
+        }
+    };
+
     // Event handlers
     utterance.onstart = () => {
         isSpeaking = true;
+        isPaused = false;
         updateListenButton();
-        if (button) {
-            button.textContent = '⏹️ Stop';
-            button.classList.add('speaking');
+        updateButtonState('speaking');
+        // Start time-based highlighting if container was provided
+        if (containerElement) {
+            startTimeBasedHighlighting(speakableText, voiceSettings.rate);
         }
     };
 
     utterance.onend = () => {
         isSpeaking = false;
+        isPaused = false;
         updateListenButton();
-        if (button) {
-            button.textContent = '🔊 Listen';
-            button.classList.remove('speaking');
-        }
+        updateButtonState('stopped');
+        setTimeout(clearSpeechHighlight, 300);
     };
 
     utterance.onerror = (event) => {
         console.error('Speech error:', event.error);
         isSpeaking = false;
+        isPaused = false;
         updateListenButton();
-        if (button) {
-            button.textContent = '🔊 Listen';
-            button.classList.remove('speaking');
-        }
+        updateButtonState('stopped');
+        clearSpeechHighlight();
         if (event.error !== 'canceled' && event.error !== 'interrupted') {
             showToast('Speech error: ' + event.error, 'error');
         }
@@ -1294,16 +1778,27 @@ function speakText(text, button = null) {
 function toggleViewerSpeech() {
     const btn = document.getElementById('viewer-listen-btn');
 
-    if (isSpeaking) {
-        stopSpeech();
+    if (isSpeaking && !isPaused) {
+        // Currently speaking -> Pause
+        pauseSpeech();
         if (btn) {
-            btn.textContent = '🔊 Listen';
+            btn.textContent = '▶️ Resume';
             btn.classList.remove('speaking');
+            btn.classList.add('paused');
+        }
+    } else if (isSpeaking && isPaused) {
+        // Currently paused -> Resume
+        resumeSpeech();
+        if (btn) {
+            btn.textContent = '⏸️ Pause';
+            btn.classList.add('speaking');
+            btn.classList.remove('paused');
         }
     } else {
+        // Not speaking -> Start with highlighting
         const contentEl = document.getElementById('viewer-content');
         if (contentEl) {
-            speakText(contentEl.textContent, btn);
+            speakText(contentEl.textContent, btn, contentEl);
         }
     }
 }
@@ -1312,16 +1807,27 @@ function toggleViewerSpeech() {
 function toggleSummarySpeech() {
     const btn = event.target;
 
-    if (isSpeaking) {
-        stopSpeech();
+    if (isSpeaking && !isPaused) {
+        // Currently speaking -> Pause
+        pauseSpeech();
         if (btn) {
-            btn.textContent = '🔊 Listen';
+            btn.textContent = '▶️ Resume';
             btn.classList.remove('speaking');
+            btn.classList.add('paused');
+        }
+    } else if (isSpeaking && isPaused) {
+        // Currently paused -> Resume
+        resumeSpeech();
+        if (btn) {
+            btn.textContent = '⏸️ Pause';
+            btn.classList.add('speaking');
+            btn.classList.remove('paused');
         }
     } else {
+        // Not speaking -> Start with highlighting
         const summaryContent = document.querySelector('#viewer-summary .summary-content');
         if (summaryContent) {
-            speakText(summaryContent.textContent, btn);
+            speakText(summaryContent.textContent, btn, summaryContent);
         }
     }
 }
@@ -1331,7 +1837,7 @@ function resetViewerListenButton() {
     const btn = document.getElementById('viewer-listen-btn');
     if (btn) {
         btn.textContent = '🔊 Listen';
-        btn.classList.remove('speaking');
+        btn.classList.remove('speaking', 'paused');
     }
 }
 
