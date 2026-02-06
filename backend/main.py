@@ -2245,15 +2245,22 @@ async def get_user_profile():
         db.close()
 
 
+class ProfileUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    role: Optional[str] = None
+    role_category: Optional[str] = None
+    interests: Optional[list] = None
+
+
 @app.put("/api/user/profile")
-async def update_user_profile(
-    display_name: str = None,
-    role: str = None,
-    role_category: str = None,
-    interests: list = None
-):
+async def update_user_profile(request: ProfileUpdateRequest):
     """Update or create the user's profile"""
     from database import SessionLocal, UserProfile, USER_ROLES
+
+    display_name = request.display_name
+    role = request.role
+    role_category = request.role_category
+    interests = request.interests
 
     # Validate role_category if provided
     if role_category and role_category not in USER_ROLES:
