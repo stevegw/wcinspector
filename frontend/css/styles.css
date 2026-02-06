@@ -685,6 +685,102 @@ body:has(.history-sidebar.collapsed) .sidebar-toggle .toggle-icon {
     padding: var(--space-lg);
 }
 
+/* Grouped History */
+.history-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.history-group-toggle {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: var(--space-sm);
+}
+
+.history-group-toggle .btn-icon {
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    border: 1px solid var(--border-color);
+    cursor: pointer;
+    font-size: 14px;
+    transition: all var(--transition-fast);
+}
+
+.history-group-toggle .btn-icon:hover {
+    background: var(--bg-tertiary);
+}
+
+.history-group-toggle .btn-icon.active {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.history-group {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--bg-secondary);
+    margin-bottom: var(--space-xs);
+}
+
+.history-group-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    cursor: pointer;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    user-select: none;
+    transition: background-color var(--transition-fast);
+}
+
+.history-group-header:hover {
+    background: var(--border-color);
+}
+
+.history-group-header .group-icon {
+    font-size: 16px;
+}
+
+.history-group-header .group-name {
+    flex: 1;
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.history-group-header .group-count {
+    background: var(--accent);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.history-group-header .group-chevron {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.history-group-items {
+    padding: var(--space-xs);
+}
+
+.history-group.collapsed .history-group-items {
+    display: none;
+}
+
+.history-group .history-item {
+    font-size: 13px;
+    padding: var(--space-xs) var(--space-sm);
+}
+
 /* Main Panel */
 .main-panel {
     flex: 1;

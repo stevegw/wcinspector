@@ -27,6 +27,8 @@ class Question(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     question_text = Column(Text, nullable=False)
+    category = Column(String(100))  # windchill, creo, codebeamer, etc.
+    detected_topic = Column(String(200))  # AI-detected topic for grouping
     created_at = Column(DateTime, default=datetime.utcnow)
     last_accessed_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -186,6 +188,27 @@ class CourseItem(Base):
     page = relationship("ScrapedPage", back_populates="course_items")
 
 
+# Available user roles by category
+USER_ROLES = {
+    "PLM": ["PLM Admin", "Change Analyst", "Product Manager", "BOM Specialist"],
+    "CAD": ["CAD Designer", "CAD Admin", "Manufacturing Engineer"],
+    "ALM": ["ALM Admin", "Requirements Analyst", "Test Engineer", "Developer"]
+}
+
+
+class UserProfile(Base):
+    """Model for storing user profile and preferences"""
+    __tablename__ = "user_profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    display_name = Column(String(100))
+    role = Column(String(100))  # One of the USER_ROLES values
+    role_category = Column(String(50))  # PLM, CAD, or ALM
+    interests = Column(JSON, default=list)  # Array of topic interests
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # Default settings
 DEFAULT_SETTINGS = {
     "theme": "light",
@@ -214,6 +237,18 @@ def init_db():
 
         if 'quiz_correct' not in columns:
             conn.execute(text("ALTER TABLE course_items ADD COLUMN quiz_correct BOOLEAN"))
+            conn.commit()
+
+        # Migration for Question categorization columns
+        result = conn.execute(text("PRAGMA table_info(questions)"))
+        question_columns = [row[1] for row in result.fetchall()]
+
+        if 'category' not in question_columns:
+            conn.execute(text("ALTER TABLE questions ADD COLUMN category VARCHAR(100)"))
+            conn.commit()
+
+        if 'detected_topic' not in question_columns:
+            conn.execute(text("ALTER TABLE questions ADD COLUMN detected_topic VARCHAR(200)"))
             conn.commit()
 
     # Initialize default settings

@@ -1870,6 +1870,8 @@ function resetViewerListenButton() {
 }
 
 // History Functions
+let historyGroupMode = localStorage.getItem('historyGroupMode') || 'category'; // 'category', 'time', 'flat'
+
 async function loadHistory() {
     try {
         const data = await apiRequest('/questions');
@@ -1885,6 +1887,16 @@ function displayHistory(questions) {
         return;
     }
 
+    if (historyGroupMode === 'flat') {
+        displayFlatHistory(questions);
+    } else if (historyGroupMode === 'time') {
+        displayTimeGroupedHistory(questions);
+    } else {
+        displayCategoryGroupedHistory(questions);
+    }
+}
+
+function displayFlatHistory(questions) {
     elements.historyList.innerHTML = questions.map(q => `
         <div class="history-item ${q.id === currentQuestionId ? 'active' : ''}"
              data-id="${q.id}"
@@ -1893,10 +1905,146 @@ function displayHistory(questions) {
         </div>
     `).join('');
 
-    // Add click handlers
+    addHistoryClickHandlers();
+}
+
+function displayTimeGroupedHistory(questions) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const thisWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const groups = {
+        'Today': [],
+        'Yesterday': [],
+        'This Week': [],
+        'Earlier': []
+    };
+
+    questions.forEach(q => {
+        const qDate = new Date(q.created_at);
+        if (qDate >= today) {
+            groups['Today'].push(q);
+        } else if (qDate >= yesterday) {
+            groups['Yesterday'].push(q);
+        } else if (qDate >= thisWeek) {
+            groups['This Week'].push(q);
+        } else {
+            groups['Earlier'].push(q);
+        }
+    });
+
+    renderGroupedHistory(groups);
+}
+
+function displayCategoryGroupedHistory(questions) {
+    const groups = {};
+
+    questions.forEach(q => {
+        const category = q.category || 'Uncategorized';
+        const displayName = getCategoryDisplayName(category);
+        if (!groups[displayName]) {
+            groups[displayName] = [];
+        }
+        groups[displayName].push(q);
+    });
+
+    renderGroupedHistory(groups);
+}
+
+function getCategoryDisplayName(category) {
+    const displayNames = {
+        'windchill': 'Windchill',
+        'creo': 'Creo',
+        'community-windchill': 'Windchill Community',
+        'community-creo': 'Creo Community',
+        'codebeamer': 'Codebeamer',
+        'internal-docs': 'Internal Docs'
+    };
+    return displayNames[category] || category.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function getCategoryIcon(category) {
+    const icons = {
+        'windchill': '🔧',
+        'creo': '📐',
+        'community-windchill': '💬',
+        'community-creo': '💬',
+        'codebeamer': '📋',
+        'internal-docs': '📁',
+        'Uncategorized': '❓',
+        'Today': '📅',
+        'Yesterday': '📆',
+        'This Week': '🗓️',
+        'Earlier': '📜'
+    };
+    return icons[category] || '📂';
+}
+
+function renderGroupedHistory(groups) {
+    let html = '<div class="history-groups">';
+
+    // Add group mode toggle
+    html += `
+        <div class="history-group-toggle">
+            <button class="btn-icon ${historyGroupMode === 'category' ? 'active' : ''}"
+                    onclick="setHistoryGroupMode('category')" title="Group by Category">📂</button>
+            <button class="btn-icon ${historyGroupMode === 'time' ? 'active' : ''}"
+                    onclick="setHistoryGroupMode('time')" title="Group by Time">🕐</button>
+            <button class="btn-icon ${historyGroupMode === 'flat' ? 'active' : ''}"
+                    onclick="setHistoryGroupMode('flat')" title="Flat List">📋</button>
+        </div>
+    `;
+
+    for (const [groupName, items] of Object.entries(groups)) {
+        if (items.length === 0) continue;
+
+        const icon = getCategoryIcon(groupName);
+        const isCollapsed = localStorage.getItem(`historyGroup_${groupName}`) === 'collapsed';
+
+        html += `
+            <div class="history-group ${isCollapsed ? 'collapsed' : ''}">
+                <div class="history-group-header" onclick="toggleHistoryGroup('${groupName}')">
+                    <span class="group-icon">${icon}</span>
+                    <span class="group-name">${groupName}</span>
+                    <span class="group-count">${items.length}</span>
+                    <span class="group-chevron">${isCollapsed ? '▶' : '▼'}</span>
+                </div>
+                <div class="history-group-items">
+                    ${items.map(q => `
+                        <div class="history-item ${q.id === currentQuestionId ? 'active' : ''}"
+                             data-id="${q.id}"
+                             title="${escapeHtml(q.question_text)}">
+                            ${escapeHtml(q.question_text)}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    html += '</div>';
+    elements.historyList.innerHTML = html;
+    addHistoryClickHandlers();
+}
+
+function addHistoryClickHandlers() {
     elements.historyList.querySelectorAll('.history-item').forEach(item => {
         item.addEventListener('click', () => loadQuestion(item.dataset.id));
     });
+}
+
+function toggleHistoryGroup(groupName) {
+    const key = `historyGroup_${groupName}`;
+    const isCollapsed = localStorage.getItem(key) === 'collapsed';
+    localStorage.setItem(key, isCollapsed ? 'expanded' : 'collapsed');
+    loadHistory(); // Refresh display
+}
+
+function setHistoryGroupMode(mode) {
+    historyGroupMode = mode;
+    localStorage.setItem('historyGroupMode', mode);
+    loadHistory(); // Refresh display
 }
 
 async function loadQuestion(id) {

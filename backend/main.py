@@ -4,7 +4,7 @@ Main FastAPI Application Entry Point
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
@@ -204,8 +204,8 @@ async def ask_question(request: AskRequest):
         length = settings.get("response_length", "detailed")
         provider = settings.get("llm_provider", "groq")
 
-        # Create question record
-        question = Question(question_text=question_text)
+        # Create question record with category
+        question = Question(question_text=question_text, category=category)
         db.add(question)
         db.commit()
         db.refresh(question)
@@ -265,6 +265,8 @@ async def get_questions():
                 {
                     "id": q.id,
                     "question_text": q.question_text,
+                    "category": q.category,
+                    "detected_topic": q.detected_topic,
                     "created_at": q.created_at.isoformat() if q.created_at else None
                 }
                 for q in questions
@@ -312,16 +314,18 @@ async def get_question(question_id: int):
 
 class RerunRequest(BaseModel):
     topic_filter: Optional[str] = None
+    category: Optional[str] = None
 
 
 @app.post("/api/questions/{question_id}/rerun")
 async def rerun_question(question_id: int, request: RerunRequest = None):
-    """Re-run a question for a fresh answer, optionally with topic filter"""
+    """Re-run a question for a fresh answer, optionally with topic and category filters"""
     from database import SessionLocal, Question, Answer, Setting
     from rag import process_question
     from datetime import datetime
 
     topic_filter = request.topic_filter if request else None
+    category = request.category if request else None
 
     db = SessionLocal()
     try:
@@ -339,7 +343,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
         length = settings.get("response_length", "detailed")
         provider = settings.get("llm_provider", "groq")
 
-        # Process through RAG pipeline again with optional topic filter
+        # Process through RAG pipeline again with optional topic and category filters
         result = await process_question(
             question=question.question_text,
             model=model,
@@ -347,6 +351,7 @@ async def rerun_question(question_id: int, request: RerunRequest = None):
             tone=tone,
             length=length,
             topic_filter=topic_filter,
+            category=category,
             provider=provider
         )
 
@@ -525,6 +530,24 @@ async def get_topics(category: str = None):
         }
     finally:
         db.close()
+
+
+@app.get("/api/topics/suggest")
+async def suggest_learning_topics(category: str = None, limit: int = 8):
+    """Generate AI-curated topic suggestions based on actual document content."""
+    from rag import generate_topic_suggestions
+
+    try:
+        # Function now samples actual content internally for better suggestions
+        suggestions = await generate_topic_suggestions(
+            titles=[],  # Fallback only - function queries content directly
+            topics=[],
+            category=category,
+            limit=limit
+        )
+        return {"suggestions": suggestions, "category": category}
+    except Exception as e:
+        return {"suggestions": [], "category": category, "error": str(e)}
 
 
 @app.get("/api/scraper/stats")
@@ -789,6 +812,281 @@ async def import_documents(request: ImportDocsRequest = None):
         "message": f"Document import started for category: {category}",
         "folder": folder_path or "default (./documents)",
         "category": category
+    }
+
+
+# ============== Internal/Kerberos Scraping Endpoints ==============
+
+class InternalUrlConfig(BaseModel):
+    """Configuration for internal URL scraping with Kerberos auth"""
+    name: str  # Display name for the category
+    base_url: str  # Base URL to scrape
+    description: Optional[str] = "Internal documentation"
+
+
+@app.post("/api/scraper/test-auth")
+async def test_internal_auth(url: str = "https://internal.ptc.com/app/search/", auth_method: str = "auto"):
+    """
+    Test authentication against an internal URL.
+
+    Args:
+        url: The internal URL to test
+        auth_method: "kerberos", "ntlm", or "auto" (tries both)
+
+    Returns success if authentication works, error details otherwise.
+    """
+    import requests
+
+    results = {"url": url, "methods_tried": []}
+
+    def try_kerberos():
+        try:
+            from requests_kerberos import HTTPKerberosAuth, OPTIONAL
+            session = requests.Session()
+            session.auth = HTTPKerberosAuth(mutual_authentication=OPTIONAL)
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            response = session.get(url, timeout=30)
+            return response, None
+        except ImportError:
+            return None, "requests-kerberos not installed"
+        except Exception as e:
+            return None, str(e)
+
+    def try_ntlm():
+        try:
+            from requests_ntlm import HttpNtlmAuth
+            import os
+            # Use current Windows user credentials
+            session = requests.Session()
+            # NTLM with empty credentials uses current Windows session
+            session.auth = HttpNtlmAuth(None, None)
+            session.headers.update({
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            })
+            response = session.get(url, timeout=30)
+            return response, None
+        except ImportError:
+            return None, "requests-ntlm not installed"
+        except Exception as e:
+            return None, str(e)
+
+    def check_www_auth(response):
+        """Extract supported auth methods from WWW-Authenticate header"""
+        www_auth = response.headers.get("WWW-Authenticate", "")
+        methods = []
+        if "Negotiate" in www_auth:
+            methods.append("Negotiate (Kerberos/NTLM)")
+        if "NTLM" in www_auth:
+            methods.append("NTLM")
+        if "Basic" in www_auth:
+            methods.append("Basic")
+        return methods, www_auth
+
+    # First, make unauthenticated request to see what auth methods are supported
+    try:
+        probe = requests.get(url, timeout=10, allow_redirects=False)
+        if probe.status_code == 401:
+            supported_methods, raw_header = check_www_auth(probe)
+            results["server_supports"] = supported_methods
+            results["www_authenticate_header"] = raw_header
+        elif probe.status_code in [200, 302, 303]:
+            # No auth required or redirect
+            results["note"] = f"URL returned {probe.status_code} without auth"
+    except Exception as e:
+        results["probe_error"] = str(e)
+
+    # Try authentication methods
+    methods_to_try = []
+    if auth_method == "auto":
+        methods_to_try = ["kerberos", "ntlm"]
+    else:
+        methods_to_try = [auth_method]
+
+    for method in methods_to_try:
+        if method == "kerberos":
+            response, error = try_kerberos()
+            result = {"method": "kerberos"}
+            if error:
+                result["error"] = error
+            elif response:
+                result["status_code"] = response.status_code
+                result["success"] = response.status_code == 200
+                if response.status_code == 200:
+                    result["content_length"] = len(response.text)
+            results["methods_tried"].append(result)
+
+            if response and response.status_code == 200:
+                return {
+                    "status": "success",
+                    "message": "Kerberos authentication successful!",
+                    "authenticated": True,
+                    "auth_method": "kerberos",
+                    **results
+                }
+
+        elif method == "ntlm":
+            response, error = try_ntlm()
+            result = {"method": "ntlm"}
+            if error:
+                result["error"] = error
+            elif response:
+                result["status_code"] = response.status_code
+                result["success"] = response.status_code == 200
+                if response.status_code == 200:
+                    result["content_length"] = len(response.text)
+            results["methods_tried"].append(result)
+
+            if response and response.status_code == 200:
+                return {
+                    "status": "success",
+                    "message": "NTLM authentication successful!",
+                    "authenticated": True,
+                    "auth_method": "ntlm",
+                    **results
+                }
+
+    # All methods failed
+    return {
+        "status": "error",
+        "message": "All authentication methods failed. See 'methods_tried' for details.",
+        "authenticated": False,
+        **results
+    }
+
+
+@app.post("/api/scraper/test-kerberos")
+async def test_kerberos_auth(url: str = "https://internal.ptc.com/app/search/"):
+    """Legacy endpoint - redirects to test-auth with kerberos method"""
+    return await test_internal_auth(url=url, auth_method="kerberos")
+
+
+class InternalCredentials(BaseModel):
+    """Credentials for internal site form-based authentication"""
+    username: str
+    password: str
+    test_url: Optional[str] = None  # Optional URL to test after setting
+
+
+@app.post("/api/scraper/set-credentials")
+async def set_internal_credentials(creds: InternalCredentials):
+    """
+    Set credentials for internal site form-based authentication.
+    Optionally tests the credentials before saving.
+    """
+    from scraper import set_internal_credentials as save_creds, test_internal_login
+
+    # Test credentials first if URL provided
+    if creds.test_url:
+        result = test_internal_login(creds.username, creds.password, creds.test_url)
+        if not result.get("authenticated"):
+            return {
+                "status": "error",
+                "message": f"Credentials test failed: {result.get('message')}",
+                "saved": False
+            }
+
+    # Save credentials
+    save_creds(creds.username, creds.password)
+
+    return {
+        "status": "success",
+        "message": "Credentials saved successfully",
+        "saved": True,
+        "username": creds.username,
+        "test_result": result if creds.test_url else None
+    }
+
+
+class LoginTestRequest(BaseModel):
+    """Request body for login test"""
+    username: str
+    password: str
+    url: Optional[str] = "https://internal.ptc.com/app/search/"
+
+
+@app.post("/api/scraper/test-login")
+async def test_internal_login_endpoint(request: LoginTestRequest):
+    """
+    Test internal site login without saving credentials.
+    """
+    from scraper import test_internal_login
+
+    result = test_internal_login(request.username, request.password, request.url)
+    return result
+
+
+@app.delete("/api/scraper/clear-credentials")
+async def clear_internal_credentials():
+    """Clear stored internal site credentials"""
+    from scraper import clear_internal_credentials
+
+    clear_internal_credentials()
+    return {
+        "status": "success",
+        "message": "Credentials cleared"
+    }
+
+
+@app.get("/api/scraper/credentials-status")
+async def get_credentials_status():
+    """Check if internal credentials are configured (doesn't return the actual credentials)"""
+    from scraper import get_internal_credentials
+
+    creds = get_internal_credentials()
+    has_credentials = bool(creds.get("username") and creds.get("password"))
+
+    return {
+        "configured": has_credentials,
+        "username": creds.get("username") if has_credentials else None
+    }
+
+
+@app.post("/api/scraper/configure-internal")
+async def configure_internal_url(config: InternalUrlConfig):
+    """
+    Configure a custom internal URL for scraping with Kerberos authentication.
+    This updates the DOC_CATEGORIES in the scraper module.
+    """
+    from scraper import DOC_CATEGORIES
+
+    # Generate a category key from the name
+    category_key = config.name.lower().replace(" ", "-")
+
+    # Add or update the category
+    DOC_CATEGORIES[category_key] = {
+        "name": config.name,
+        "base_url": config.base_url,
+        "description": config.description,
+        "type": "internal",
+        "auth": "kerberos"
+    }
+
+    return {
+        "status": "success",
+        "message": f"Internal category '{config.name}' configured",
+        "category_key": category_key,
+        "config": DOC_CATEGORIES[category_key]
+    }
+
+
+@app.get("/api/scraper/categories")
+async def get_scraper_categories():
+    """Get all available scraper categories including internal ones"""
+    from scraper import DOC_CATEGORIES
+
+    return {
+        "categories": {
+            key: {
+                "name": cat["name"],
+                "base_url": cat["base_url"],
+                "description": cat["description"],
+                "type": cat.get("type", "docs"),
+                "auth": cat.get("auth", "none")
+            }
+            for key, cat in DOC_CATEGORIES.items()
+        }
     }
 
 
@@ -1819,6 +2117,249 @@ async def summarize_page_by_url(url: str):
             "page_id": page.id,
             "title": page.title,
             "summary": summary
+        }
+    finally:
+        db.close()
+
+
+# ============== Community Insights API Endpoints ==============
+
+@app.get("/api/community/popular")
+async def get_popular_community_questions(
+    category: str = None,
+    limit: int = Query(default=10, le=50)
+):
+    """Get popular community questions sorted by answer count and solution presence"""
+    from database import SessionLocal, ScrapedPage
+
+    db = SessionLocal()
+    try:
+        # Query community Q&A pages
+        query = db.query(ScrapedPage).filter(
+            ScrapedPage.topic == "Q&A",
+            ScrapedPage.category.in_(["community-windchill", "community-creo"])
+        )
+
+        if category:
+            if category in ["windchill", "community-windchill"]:
+                query = query.filter(ScrapedPage.category == "community-windchill")
+            elif category in ["creo", "community-creo"]:
+                query = query.filter(ScrapedPage.category == "community-creo")
+
+        # Order by content length as proxy for engagement (longer = more answers)
+        # Note: has_solution and answer_count are in content, not separate columns
+        pages = query.order_by(ScrapedPage.scraped_at.desc()).limit(limit * 2).all()
+
+        # Parse and sort by answer indicators in content
+        results = []
+        for page in pages:
+            has_solution = "Accepted Solution:" in (page.content or "")
+            # Count "Answer" occurrences as proxy for answer count
+            answer_count = (page.content or "").count("Answer ")
+
+            results.append({
+                "id": page.id,
+                "title": page.title,
+                "url": page.url,
+                "category": page.category,
+                "has_solution": has_solution,
+                "answer_count": answer_count,
+                "scraped_at": page.scraped_at.isoformat() if page.scraped_at else None
+            })
+
+        # Sort by has_solution (True first), then answer_count
+        results.sort(key=lambda x: (-x["has_solution"], -x["answer_count"]))
+        return {"questions": results[:limit]}
+
+    finally:
+        db.close()
+
+
+@app.get("/api/community/topics")
+async def get_community_topic_clusters():
+    """Get topic clusters from community questions for insight suggestions"""
+    from database import SessionLocal, ScrapedPage
+    from collections import Counter
+    import re
+
+    db = SessionLocal()
+    try:
+        # Get all community Q&A titles
+        pages = db.query(ScrapedPage.title, ScrapedPage.category).filter(
+            ScrapedPage.topic == "Q&A",
+            ScrapedPage.category.in_(["community-windchill", "community-creo"])
+        ).all()
+
+        # Extract keywords from titles
+        keywords = Counter()
+        for page in pages:
+            if page.title:
+                # Extract meaningful words (3+ chars, not common words)
+                words = re.findall(r'\b[A-Za-z]{3,}\b', page.title.lower())
+                stop_words = {'the', 'and', 'for', 'how', 'what', 'why', 'can', 'does', 'with', 'from', 'this', 'that', 'when', 'where'}
+                for word in words:
+                    if word not in stop_words:
+                        keywords[word] += 1
+
+        # Return top topics
+        top_topics = keywords.most_common(20)
+        return {
+            "topics": [{"topic": topic, "count": count} for topic, count in top_topics],
+            "total_questions": len(pages)
+        }
+
+    finally:
+        db.close()
+
+
+# ============== User Profile API Endpoints ==============
+
+@app.get("/api/user/profile")
+async def get_user_profile():
+    """Get the current user's profile (single-user mode: returns first/only profile)"""
+    from database import SessionLocal, UserProfile
+
+    db = SessionLocal()
+    try:
+        profile = db.query(UserProfile).first()
+        if not profile:
+            # Return empty profile structure
+            return {
+                "id": None,
+                "display_name": None,
+                "role": None,
+                "role_category": None,
+                "interests": [],
+                "created_at": None
+            }
+
+        return {
+            "id": profile.id,
+            "display_name": profile.display_name,
+            "role": profile.role,
+            "role_category": profile.role_category,
+            "interests": profile.interests or [],
+            "created_at": profile.created_at.isoformat() if profile.created_at else None
+        }
+    finally:
+        db.close()
+
+
+@app.put("/api/user/profile")
+async def update_user_profile(
+    display_name: str = None,
+    role: str = None,
+    role_category: str = None,
+    interests: list = None
+):
+    """Update or create the user's profile"""
+    from database import SessionLocal, UserProfile, USER_ROLES
+
+    # Validate role_category if provided
+    if role_category and role_category not in USER_ROLES:
+        return JSONResponse(
+            status_code=400,
+            content={"error": f"Invalid role_category. Must be one of: {list(USER_ROLES.keys())}"}
+        )
+
+    # Validate role if provided
+    if role and role_category:
+        valid_roles = USER_ROLES.get(role_category, [])
+        if role not in valid_roles:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Invalid role for {role_category}. Must be one of: {valid_roles}"}
+            )
+
+    db = SessionLocal()
+    try:
+        profile = db.query(UserProfile).first()
+
+        if profile:
+            # Update existing profile
+            if display_name is not None:
+                profile.display_name = display_name
+            if role is not None:
+                profile.role = role
+            if role_category is not None:
+                profile.role_category = role_category
+            if interests is not None:
+                profile.interests = interests
+        else:
+            # Create new profile
+            profile = UserProfile(
+                display_name=display_name,
+                role=role,
+                role_category=role_category,
+                interests=interests or []
+            )
+            db.add(profile)
+
+        db.commit()
+        db.refresh(profile)
+
+        return {
+            "id": profile.id,
+            "display_name": profile.display_name,
+            "role": profile.role,
+            "role_category": profile.role_category,
+            "interests": profile.interests or [],
+            "updated_at": profile.updated_at.isoformat() if profile.updated_at else None
+        }
+    finally:
+        db.close()
+
+
+@app.get("/api/user/roles")
+async def get_available_roles():
+    """Get all available roles grouped by category"""
+    from database import USER_ROLES
+    return {"roles": USER_ROLES}
+
+
+# ============== Question History with Categories ==============
+
+@app.get("/api/questions/grouped")
+async def get_grouped_questions():
+    """Get questions grouped by category and topic for thematic history display"""
+    from database import SessionLocal, Question
+
+    db = SessionLocal()
+    try:
+        questions = db.query(Question).order_by(Question.created_at.desc()).limit(100).all()
+
+        # Group by category
+        grouped = {}
+        uncategorized = []
+
+        for q in questions:
+            category = q.category or "uncategorized"
+            topic = q.detected_topic or "General"
+
+            if category == "uncategorized":
+                uncategorized.append({
+                    "id": q.id,
+                    "question_text": q.question_text,
+                    "created_at": q.created_at.isoformat() if q.created_at else None
+                })
+            else:
+                if category not in grouped:
+                    grouped[category] = {"topics": {}, "count": 0}
+
+                if topic not in grouped[category]["topics"]:
+                    grouped[category]["topics"][topic] = []
+
+                grouped[category]["topics"][topic].append({
+                    "id": q.id,
+                    "question_text": q.question_text,
+                    "created_at": q.created_at.isoformat() if q.created_at else None
+                })
+                grouped[category]["count"] += 1
+
+        return {
+            "grouped": grouped,
+            "uncategorized": uncategorized,
+            "total": len(questions)
         }
     finally:
         db.close()
