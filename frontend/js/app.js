@@ -1371,6 +1371,14 @@ async function loadQuestion(id) {
         currentQuestionId = parseInt(id);
         currentSources = data.answer?.source_links || [];
 
+        // Hide course viewer if open and show main panel
+        if (elements.courseViewer) {
+            elements.courseViewer.classList.add('hidden');
+        }
+        if (elements.mainPanel) {
+            elements.mainPanel.classList.remove('hidden');
+        }
+
         elements.sampleQuestions.classList.add('hidden');
         elements.resultsCard.classList.remove('hidden');
 
