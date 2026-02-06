@@ -1512,20 +1512,35 @@ async def generate_ai_course(request: GenerateCourseRequest):
             })
 
             # If we have a page_id, use it; otherwise we need to handle this differently
-            # For now, let's find ANY related page or use first page in DB
-            if not page_id:
-                # Try to find a page by searching for keywords in the lesson title
-                search_term = f"%{lesson.get('title', '').split()[0] if lesson.get('title') else 'windchill'}%"
-                page = db.query(ScrapedPage).filter(
-                    ScrapedPage.title.ilike(search_term)
-                ).first()
-                if page:
-                    page_id = page.id
-                else:
-                    # Get first available page as fallback
-                    page = db.query(ScrapedPage).first()
+            # Search for related pages within the same category
+            if not page_id and request.category:
+                # Try to find a page by searching for keywords in the lesson title within the category
+                lesson_title = lesson.get('title', '')
+                if lesson_title:
+                    search_words = lesson_title.split()[:3]  # Use first 3 words
+                    for word in search_words:
+                        if len(word) > 3:  # Skip short words
+                            page = db.query(ScrapedPage).filter(
+                                ScrapedPage.category == request.category,
+                                ScrapedPage.title.ilike(f"%{word}%")
+                            ).first()
+                            if page:
+                                page_id = page.id
+                                break
+
+                # If still no match, get any page from the correct category
+                if not page_id:
+                    page = db.query(ScrapedPage).filter(
+                        ScrapedPage.category == request.category
+                    ).first()
                     if page:
                         page_id = page.id
+
+            # Final fallback: if no category specified or no pages in category
+            if not page_id:
+                page = db.query(ScrapedPage).first()
+                if page:
+                    page_id = page.id
 
             if page_id:
                 item = CourseItem(
