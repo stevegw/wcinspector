@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WCInspector - PTC Knowledge Base</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
-    <link rel="stylesheet" href="/static/css/styles.css?v=53">
+    <link rel="stylesheet" href="/static/css/styles.css?v=54">
 </head>
 <body>
     <!-- Loading Overlay -->
@@ -232,14 +232,42 @@
                 <button class="modal-close" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="setting-group">
-                    <label for="tone-select">AI Tone</label>
-                    <select id="tone-select">
-                        <option value="formal">Formal</option>
-                        <option value="casual">Casual</option>
-                        <option value="technical" selected>Technical</option>
-                    </select>
+                <!-- Profile Section -->
+                <div class="settings-section">
+                    <h3 class="settings-section-title">Your Profile</h3>
+                    <div class="setting-group">
+                        <label for="display-name-input">Display Name</label>
+                        <input type="text" id="display-name-input" placeholder="Enter your name..." />
+                    </div>
+                    <div class="setting-group">
+                        <label for="role-category-select">Role Category</label>
+                        <select id="role-category-select">
+                            <option value="">Select your area...</option>
+                            <option value="PLM">PLM (Product Lifecycle)</option>
+                            <option value="CAD">CAD (Design)</option>
+                            <option value="ALM">ALM (Application Lifecycle)</option>
+                        </select>
+                    </div>
+                    <div class="setting-group" id="role-select-group" style="display: none;">
+                        <label for="role-select">Your Role</label>
+                        <select id="role-select">
+                            <option value="">Select your role...</option>
+                        </select>
+                    </div>
+                    <div class="profile-status" id="profile-status"></div>
                 </div>
+
+                <!-- AI Settings Section -->
+                <div class="settings-section">
+                    <h3 class="settings-section-title">AI Settings</h3>
+                    <div class="setting-group">
+                        <label for="tone-select">AI Tone</label>
+                        <select id="tone-select">
+                            <option value="formal">Formal</option>
+                            <option value="casual">Casual</option>
+                            <option value="technical" selected>Technical</option>
+                        </select>
+                    </div>
                 <div class="setting-group">
                     <label for="length-select">Response Length</label>
                     <select id="length-select">
@@ -266,6 +294,7 @@
                         <!-- Models will be populated by JavaScript -->
                     </select>
                 </div>
+                </div><!-- End AI Settings Section -->
                 <div class="setting-actions">
                     <button id="reset-settings-btn" class="btn btn-danger">Reset to Defaults</button>
                     <button id="save-settings-btn" class="btn btn-primary">Save</button>
@@ -614,6 +643,6 @@
         <button id="floating-stop-btn" class="floating-speech-btn" title="Stop">⏹️</button>
     </div>
 
-    <script src="/static/js/app.js?v=70"></script>
+    <script src="/static/js/app.js?v=71"></script>
 </body>
 </html>

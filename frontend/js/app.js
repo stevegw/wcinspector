@@ -28,6 +28,10 @@ let courses = [];
 let currentCourse = null;
 let currentLessonId = null;
 let editingCourseId = null;  // Course ID being edited (null for new)
+
+// User profile state
+let userProfile = null;
+let availableRoles = {};
 let notesTimeout = null;  // Debounce timer for auto-save notes
 
 // Text-to-speech state
@@ -123,6 +127,13 @@ const elements = {
     modelSelect: document.getElementById('model-select'),
     resetSettingsBtn: document.getElementById('reset-settings-btn'),
     saveSettingsBtn: document.getElementById('save-settings-btn'),
+
+    // Profile Settings
+    displayNameInput: document.getElementById('display-name-input'),
+    roleCategorySelect: document.getElementById('role-category-select'),
+    roleSelectGroup: document.getElementById('role-select-group'),
+    roleSelect: document.getElementById('role-select'),
+    profileStatus: document.getElementById('profile-status'),
 
     // Sources Modal
     sourcesModal: document.getElementById('sources-modal'),
@@ -292,6 +303,9 @@ async function init() {
     // Load community insights
     await loadCommunityInsights();
 
+    // Load user profile
+    await loadUserProfile();
+
     // Load scraper stats
     await loadScraperStats();
 
@@ -406,6 +420,11 @@ function setupEventListeners() {
     elements.providerSelect.addEventListener('change', updateModelGroupVisibility);
     elements.resetSettingsBtn.addEventListener('click', resetSettings);
     elements.saveSettingsBtn.addEventListener('click', saveSettings);
+
+    // Profile
+    if (elements.roleCategorySelect) {
+        elements.roleCategorySelect.addEventListener('change', handleRoleCategoryChange);
+    }
 
     // Documents Modal
     elements.documentsBtn.addEventListener('click', openDocumentsModal);
@@ -675,10 +694,15 @@ async function saveSettings() {
     settings.ollama_model = elements.modelSelect.value;
 
     try {
+        // Save settings
         await apiRequest('/settings', {
             method: 'PUT',
             body: JSON.stringify(settings)
         });
+
+        // Also save user profile
+        await saveUserProfile();
+
         elements.settingsModal.classList.add('hidden');
         showToast('Settings saved successfully', 'success');
     } catch (error) {
@@ -3843,6 +3867,144 @@ function openCommunityQuestion(url) {
     if (url) {
         window.open(url, '_blank');
     }
+}
+
+// ============== User Profile ==============
+
+async function loadUserProfile() {
+    try {
+        // Load available roles
+        const rolesData = await apiRequest('/user/roles').catch(() => ({ roles: {} }));
+        availableRoles = rolesData.roles || {};
+
+        // Load current profile
+        const profileData = await apiRequest('/user/profile').catch(() => ({}));
+        userProfile = profileData;
+
+        // Update UI if settings modal elements exist
+        updateProfileUI();
+    } catch (error) {
+        console.error('Failed to load user profile:', error);
+    }
+}
+
+function updateProfileUI() {
+    if (!userProfile) return;
+
+    // Update display name
+    if (elements.displayNameInput) {
+        elements.displayNameInput.value = userProfile.display_name || '';
+    }
+
+    // Update role category
+    if (elements.roleCategorySelect) {
+        elements.roleCategorySelect.value = userProfile.role_category || '';
+        handleRoleCategoryChange(); // This will populate the role dropdown
+    }
+
+    // Update role
+    if (elements.roleSelect && userProfile.role) {
+        elements.roleSelect.value = userProfile.role;
+    }
+
+    // Update greeting if we have a name
+    updateUserGreeting();
+}
+
+function handleRoleCategoryChange() {
+    const category = elements.roleCategorySelect.value;
+
+    if (!category || !availableRoles[category]) {
+        elements.roleSelectGroup.style.display = 'none';
+        elements.roleSelect.innerHTML = '<option value="">Select your role...</option>';
+        return;
+    }
+
+    // Show role dropdown and populate with roles for this category
+    elements.roleSelectGroup.style.display = 'block';
+    const roles = availableRoles[category] || [];
+    elements.roleSelect.innerHTML = `
+        <option value="">Select your role...</option>
+        ${roles.map(role => `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join('')}
+    `;
+
+    // Re-select current role if it matches
+    if (userProfile && userProfile.role && roles.includes(userProfile.role)) {
+        elements.roleSelect.value = userProfile.role;
+    }
+}
+
+async function saveUserProfile() {
+    const displayName = elements.displayNameInput?.value?.trim() || null;
+    const roleCategory = elements.roleCategorySelect?.value || null;
+    const role = elements.roleSelect?.value || null;
+
+    try {
+        showProfileStatus('Saving...', 'info');
+
+        const response = await apiRequest('/user/profile', {
+            method: 'PUT',
+            body: JSON.stringify({
+                display_name: displayName,
+                role_category: roleCategory,
+                role: role
+            })
+        });
+
+        userProfile = response;
+        showProfileStatus('Profile saved!', 'success');
+        updateUserGreeting();
+
+        // Refresh topic suggestions based on new role
+        loadMainTopicSuggestions();
+
+        setTimeout(() => showProfileStatus('', ''), 2000);
+    } catch (error) {
+        console.error('Failed to save profile:', error);
+        showProfileStatus('Failed to save', 'error');
+    }
+}
+
+function showProfileStatus(message, type) {
+    if (!elements.profileStatus) return;
+
+    elements.profileStatus.textContent = message;
+    elements.profileStatus.className = 'profile-status';
+    if (type) {
+        elements.profileStatus.classList.add(`status-${type}`);
+    }
+}
+
+function updateUserGreeting() {
+    // Update any greeting elements with the user's name
+    const greetingEl = document.querySelector('.clean-slate-hero h2');
+    if (greetingEl && userProfile?.display_name) {
+        greetingEl.textContent = `What would you like to learn, ${userProfile.display_name}?`;
+    }
+}
+
+function getUserRoleContext() {
+    // Returns context string for role-based filtering
+    if (!userProfile || !userProfile.role) return null;
+
+    const roleContexts = {
+        // PLM roles
+        'PLM Admin': 'system administration, configuration, user management, workflows',
+        'Change Analyst': 'change management, ECN, ECR, change processes, approvals',
+        'Product Manager': 'product structure, BOM management, product data',
+        'BOM Specialist': 'BOM, parts, assemblies, product structure, manufacturing BOM',
+        // CAD roles
+        'CAD Designer': 'modeling, sketches, features, assemblies, drawings',
+        'CAD Admin': 'CAD configuration, templates, standards, libraries',
+        'Manufacturing Engineer': 'manufacturing, tooling, NC, CAM, process planning',
+        // ALM roles
+        'ALM Admin': 'ALM configuration, projects, users, permissions',
+        'Requirements Analyst': 'requirements, specifications, traceability',
+        'Test Engineer': 'testing, test cases, test execution, defects',
+        'Developer': 'customization, APIs, integrations, scripting'
+    };
+
+    return roleContexts[userProfile.role] || null;
 }
 
 // Show AI course generation modal

@@ -1822,6 +1822,46 @@ body:has(.history-sidebar.collapsed) .sidebar-toggle .toggle-icon {
     margin-top: var(--space-lg);
 }
 
+/* Settings Sections */
+.settings-section {
+    margin-bottom: var(--space-xl);
+    padding-bottom: var(--space-lg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.settings-section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.settings-section-title {
+    margin-bottom: var(--space-md);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Profile Status */
+.profile-status {
+    margin-top: var(--space-sm);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    min-height: 1.2rem;
+}
+
+.profile-status.status-success {
+    color: var(--success-color);
+}
+
+.profile-status.status-error {
+    color: var(--error-color);
+}
+
+.profile-status.status-info {
+    color: var(--primary-color);
+}
+
 /* Sources List */
 .sources-list {
     list-style: none;
