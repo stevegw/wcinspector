@@ -1536,11 +1536,8 @@ async def generate_ai_course(request: GenerateCourseRequest):
                     if page:
                         page_id = page.id
 
-            # Final fallback: if no category specified or no pages in category
-            if not page_id:
-                page = db.query(ScrapedPage).first()
-                if page:
-                    page_id = page.id
+            # NO FALLBACK: lessons must be based on the correct category only
+            # If no page exists in the category, skip this lesson
 
             if page_id:
                 item = CourseItem(
@@ -1607,15 +1604,14 @@ async def generate_question_course(request: GenerateQuestionsRequest):
         db.refresh(course)
 
         # Find a page to link to (for the page_id requirement)
-        fallback_page = None
+        # NO FALLBACK: questions must be based on the correct category only
+        page_id = None
         if request.category:
-            fallback_page = db.query(ScrapedPage).filter(
+            category_page = db.query(ScrapedPage).filter(
                 ScrapedPage.category == request.category
             ).first()
-        if not fallback_page:
-            fallback_page = db.query(ScrapedPage).first()
-
-        page_id = fallback_page.id if fallback_page else None
+            if category_page:
+                page_id = category_page.id
 
         # Create course items for each question
         import json
