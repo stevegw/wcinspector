@@ -55,11 +55,237 @@ DOC_CATEGORIES = {
         "base_url": "https://community.ptc.com/t5/Creo-Parametric/bd-p/crlounge",
         "description": "PTC Community Creo Discussions",
         "type": "community"
+    },
+    "internal": {
+        "name": "Internal PTC",
+        "base_url": "https://internal.ptc.com/app/search/",
+        "description": "Internal PTC Documentation (Form Login)",
+        "type": "internal",
+        "auth": "form",
+        "login_url": "https://internal.ptc.com/app/search/"
     }
 }
 
+# Internal credentials storage (loaded from database/env)
+_internal_credentials = {
+    "username": None,
+    "password": None
+}
+
+
+def set_internal_credentials(username: str, password: str):
+    """Set credentials for internal site authentication"""
+    global _internal_credentials
+    _internal_credentials["username"] = username
+    _internal_credentials["password"] = password
+
+
+def get_internal_credentials() -> dict:
+    """Get stored internal credentials"""
+    return _internal_credentials.copy()
+
+
+def clear_internal_credentials():
+    """Clear stored credentials"""
+    global _internal_credentials
+    _internal_credentials = {"username": None, "password": None}
+
 # Default base URL (for backwards compatibility)
 PTC_BASE_URL = DOC_CATEGORIES["windchill"]["base_url"]
+
+
+def create_authenticated_session(category: str = None) -> requests.Session:
+    """
+    Create a requests session with appropriate authentication.
+
+    For internal categories with form auth, performs login and returns authenticated session.
+    For Kerberos categories, uses Windows integrated authentication.
+    For public categories, uses a standard session with user-agent.
+    """
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    })
+
+    # Check if category requires authentication
+    if category and category in DOC_CATEGORIES:
+        cat_info = DOC_CATEGORIES[category]
+        auth_type = cat_info.get("auth")
+
+        if auth_type == "form":
+            # Form-based authentication
+            creds = get_internal_credentials()
+            if creds["username"] and creds["password"]:
+                login_url = cat_info.get("login_url", cat_info["base_url"])
+                success, error = perform_form_login(session, login_url, creds["username"], creds["password"])
+                if success:
+                    print(f"[INFO] Form authentication successful for category: {category}")
+                else:
+                    print(f"[WARNING] Form authentication failed: {error}")
+                    scraper_state["errors"].append(f"Form auth failed: {error}")
+            else:
+                print("[WARNING] No credentials configured for internal site. Use /api/scraper/set-credentials")
+                scraper_state["errors"].append("No credentials configured for internal authentication")
+
+        elif auth_type == "kerberos":
+            try:
+                from requests_kerberos import HTTPKerberosAuth, OPTIONAL
+                session.auth = HTTPKerberosAuth(mutual_authentication=OPTIONAL)
+                print(f"[INFO] Kerberos authentication enabled for category: {category}")
+            except ImportError:
+                print("[WARNING] requests-kerberos not installed. Run: pip install requests-kerberos")
+                scraper_state["errors"].append("Kerberos auth not available - install requests-kerberos")
+            except Exception as e:
+                print(f"[WARNING] Kerberos auth setup failed: {e}")
+                scraper_state["errors"].append(f"Kerberos auth failed: {str(e)}")
+
+    return session
+
+
+async def perform_form_login_async(session: requests.Session, login_url: str, username: str, password: str) -> tuple:
+    """
+    Perform form-based login to PTC internal site using Playwright async API.
+    Transfers cookies from browser to requests session.
+
+    Returns (success: bool, error_message: str or None)
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return False, "Playwright not installed. Run: pip install playwright && playwright install chromium"
+
+    try:
+        print(f"[DEBUG] Starting Playwright login to: {login_url}")
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            # Navigate to login page
+            print(f"[DEBUG] Navigating to login page...")
+            await page.goto(login_url, timeout=30000)
+
+            # Fill login form
+            print(f"[DEBUG] Filling credentials for user: {username}")
+            await page.fill('input[name="ptcSecureUser"]', username)
+            await page.fill('input[name="ptcSecurePass"]', password)
+
+            # Submit form
+            print(f"[DEBUG] Submitting form...")
+            await page.click('input[type="submit"]')
+
+            # Wait for navigation
+            try:
+                await page.wait_for_load_state('networkidle', timeout=15000)
+            except Exception:
+                pass  # Timeout is ok, check content anyway
+
+            final_url = page.url
+            page_content = await page.content()
+
+            print(f"[DEBUG] After login URL: {final_url}")
+            print(f"[DEBUG] Page title: {await page.title()}")
+
+            # Check if still on login page
+            if 'ptcSecureUser' in page_content and 'Please supply a username' in page_content:
+                await browser.close()
+                if 'Invalid' in page_content or 'incorrect' in page_content.lower():
+                    return False, "Invalid username or password"
+                return False, "Login failed - still on login page"
+
+            # Success! Transfer cookies to requests session
+            cookies = await context.cookies()
+            print(f"[DEBUG] Got {len(cookies)} cookies from browser")
+
+            for cookie in cookies:
+                session.cookies.set(
+                    cookie['name'],
+                    cookie['value'],
+                    domain=cookie.get('domain', ''),
+                    path=cookie.get('path', '/')
+                )
+
+            await browser.close()
+            print(f"[DEBUG] Login successful! Cookies transferred to session.")
+            return True, None
+
+    except Exception as e:
+        import traceback
+        print(f"[DEBUG] Playwright login exception: {traceback.format_exc()}")
+        return False, f"Login error: {str(e)}"
+
+
+def perform_form_login(session: requests.Session, login_url: str, username: str, password: str) -> tuple:
+    """
+    Sync wrapper for form login - runs async version in a thread.
+    """
+    import asyncio
+
+    # Check if we're already in an async context
+    try:
+        loop = asyncio.get_running_loop()
+        # We're in async context, need to run in thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                asyncio.run,
+                perform_form_login_async(session, login_url, username, password)
+            )
+            return future.result(timeout=60)
+    except RuntimeError:
+        # No running loop, can use asyncio.run directly
+        return asyncio.run(perform_form_login_async(session, login_url, username, password))
+
+
+def test_internal_login(username: str, password: str, url: str = None) -> dict:
+    """
+    Test internal site login with provided credentials using Playwright.
+
+    Returns dict with status, message, and details.
+    """
+    if not url:
+        url = DOC_CATEGORIES.get("internal", {}).get("base_url", "https://internal.ptc.com/app/search/")
+
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    })
+
+    success, error = perform_form_login(session, url, username, password)
+
+    if success:
+        # Try to access a protected page to verify session works
+        try:
+            test_response = session.get(url, timeout=30)
+            # Check by looking at title or absence of login form
+            if "ptcSecureUser" not in test_response.text:
+                return {
+                    "status": "success",
+                    "message": "Login successful! Session is authenticated.",
+                    "authenticated": True,
+                    "content_length": len(test_response.text),
+                    "cookies_count": len(session.cookies)
+                }
+            else:
+                return {
+                    "status": "warning",
+                    "message": "Login succeeded but cookies may not have transferred correctly",
+                    "authenticated": True,
+                    "cookies_count": len(session.cookies)
+                }
+        except Exception as e:
+            return {
+                "status": "warning",
+                "message": f"Login succeeded but verification failed: {str(e)}",
+                "authenticated": True
+            }
+    else:
+        return {
+            "status": "error",
+            "message": error,
+            "authenticated": False
+        }
 
 
 def reset_scraper_state():
@@ -1013,8 +1239,8 @@ async def run_scrape(db_session, max_pages: int = 100, category: str = "windchil
     queue = [base_url]
     scraper_state["total_pages_estimate"] = max_pages
 
-    session = requests.Session()
-    session.headers.update({"User-Agent": "WCInspector Documentation Scraper"})
+    # Use authenticated session for internal categories
+    session = create_authenticated_session(category)
 
     try:
         while queue and len(visited) < max_pages:
