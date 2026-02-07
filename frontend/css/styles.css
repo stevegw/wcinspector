@@ -3224,6 +3224,17 @@ select:focus {
 .course-header-right {
     display: flex;
     gap: var(--space-sm);
+    align-items: center;
+}
+
+.course-voice-settings {
+    position: relative;
+    margin-left: var(--space-sm);
+}
+
+.course-voice-settings .voice-settings-popup {
+    left: 0;
+    right: auto;
 }
 
 .course-header-center {

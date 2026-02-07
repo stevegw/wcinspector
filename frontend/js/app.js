@@ -102,6 +102,14 @@ const elements = {
     floatingSpeechControls: document.getElementById('floating-speech-controls'),
     floatingPauseBtn: document.getElementById('floating-pause-btn'),
     floatingStopBtn: document.getElementById('floating-stop-btn'),
+    // Course viewer voice settings
+    courseVoiceSettingsBtn: document.getElementById('course-voice-settings-btn'),
+    courseVoiceSettingsPopup: document.getElementById('course-voice-settings-popup'),
+    courseVoiceSelect: document.getElementById('course-voice-select'),
+    courseSpeechRate: document.getElementById('course-speech-rate'),
+    courseSpeechRateValue: document.getElementById('course-speech-rate-value'),
+    courseSpeechPitch: document.getElementById('course-speech-pitch'),
+    courseSpeechPitchValue: document.getElementById('course-speech-pitch-value'),
     copyBtn: document.getElementById('copy-btn'),
     rerunBtn: document.getElementById('rerun-btn'),
     moreBtn: document.getElementById('more-btn'),
@@ -367,6 +375,20 @@ function setupEventListeners() {
     elements.speechRate.addEventListener('input', handleRateChange);
     elements.speechPitch.addEventListener('input', handlePitchChange);
 
+    // Course viewer voice settings
+    if (elements.courseVoiceSettingsBtn) {
+        elements.courseVoiceSettingsBtn.addEventListener('click', toggleCourseVoiceSettings);
+    }
+    if (elements.courseVoiceSelect) {
+        elements.courseVoiceSelect.addEventListener('change', handleCourseVoiceChange);
+    }
+    if (elements.courseSpeechRate) {
+        elements.courseSpeechRate.addEventListener('input', handleCourseRateChange);
+    }
+    if (elements.courseSpeechPitch) {
+        elements.courseSpeechPitch.addEventListener('input', handleCoursePitchChange);
+    }
+
     // Floating speech controls
     elements.floatingPauseBtn.addEventListener('click', toggleFloatingPause);
     elements.floatingStopBtn.addEventListener('click', () => {
@@ -378,6 +400,11 @@ function setupEventListeners() {
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.listen-controls')) {
             elements.voiceSettingsPopup.classList.add('hidden');
+        }
+        if (!e.target.closest('.course-voice-settings')) {
+            if (elements.courseVoiceSettingsPopup) {
+                elements.courseVoiceSettingsPopup.classList.add('hidden');
+            }
         }
     });
 
@@ -1116,10 +1143,20 @@ function initVoices() {
     if (saved) {
         try {
             voiceSettings = JSON.parse(saved);
+            // Sync Q&A voice settings
             elements.speechRate.value = voiceSettings.rate;
             elements.speechRateValue.textContent = voiceSettings.rate + 'x';
             elements.speechPitch.value = voiceSettings.pitch;
             elements.speechPitchValue.textContent = voiceSettings.pitch;
+            // Sync course voice settings
+            if (elements.courseSpeechRate) {
+                elements.courseSpeechRate.value = voiceSettings.rate;
+                elements.courseSpeechRateValue.textContent = voiceSettings.rate + 'x';
+            }
+            if (elements.courseSpeechPitch) {
+                elements.courseSpeechPitch.value = voiceSettings.pitch;
+                elements.courseSpeechPitchValue.textContent = voiceSettings.pitch;
+            }
         } catch (e) {
             console.error('Failed to load voice settings:', e);
         }
@@ -1144,7 +1181,7 @@ function populateVoices() {
         return a.name.localeCompare(b.name);
     });
 
-    // Populate dropdown
+    // Populate Q&A dropdown
     elements.voiceSelect.innerHTML = '<option value="">Default</option>';
     availableVoices.forEach((voice, index) => {
         const option = document.createElement('option');
@@ -1155,6 +1192,20 @@ function populateVoices() {
         }
         elements.voiceSelect.appendChild(option);
     });
+
+    // Populate course viewer dropdown
+    if (elements.courseVoiceSelect) {
+        elements.courseVoiceSelect.innerHTML = '<option value="">Default</option>';
+        availableVoices.forEach((voice, index) => {
+            const option = document.createElement('option');
+            option.value = voice.name;
+            option.textContent = `${voice.name} (${voice.lang})`;
+            if (voice.name === voiceSettings.voiceName) {
+                option.selected = true;
+            }
+            elements.courseVoiceSelect.appendChild(option);
+        });
+    }
 }
 
 function toggleVoiceSettings(e) {
@@ -1181,6 +1232,54 @@ function handlePitchChange() {
 
 function saveVoiceSettings() {
     localStorage.setItem('voiceSettings', JSON.stringify(voiceSettings));
+    // Sync both UIs
+    syncVoiceSettingsUI();
+}
+
+function syncVoiceSettingsUI() {
+    // Sync Q&A UI
+    elements.voiceSelect.value = voiceSettings.voiceName;
+    elements.speechRate.value = voiceSettings.rate;
+    elements.speechRateValue.textContent = voiceSettings.rate.toFixed(1) + 'x';
+    elements.speechPitch.value = voiceSettings.pitch;
+    elements.speechPitchValue.textContent = voiceSettings.pitch.toFixed(1);
+    // Sync course UI
+    if (elements.courseVoiceSelect) {
+        elements.courseVoiceSelect.value = voiceSettings.voiceName;
+    }
+    if (elements.courseSpeechRate) {
+        elements.courseSpeechRate.value = voiceSettings.rate;
+        elements.courseSpeechRateValue.textContent = voiceSettings.rate.toFixed(1) + 'x';
+    }
+    if (elements.courseSpeechPitch) {
+        elements.courseSpeechPitch.value = voiceSettings.pitch;
+        elements.courseSpeechPitchValue.textContent = voiceSettings.pitch.toFixed(1);
+    }
+}
+
+// Course viewer voice settings handlers
+function toggleCourseVoiceSettings(e) {
+    e.stopPropagation();
+    if (elements.courseVoiceSettingsPopup) {
+        elements.courseVoiceSettingsPopup.classList.toggle('hidden');
+    }
+}
+
+function handleCourseVoiceChange() {
+    voiceSettings.voiceName = elements.courseVoiceSelect.value;
+    saveVoiceSettings();
+}
+
+function handleCourseRateChange() {
+    voiceSettings.rate = parseFloat(elements.courseSpeechRate.value);
+    elements.courseSpeechRateValue.textContent = voiceSettings.rate.toFixed(1) + 'x';
+    saveVoiceSettings();
+}
+
+function handleCoursePitchChange() {
+    voiceSettings.pitch = parseFloat(elements.courseSpeechPitch.value);
+    elements.courseSpeechPitchValue.textContent = voiceSettings.pitch.toFixed(1);
+    saveVoiceSettings();
 }
 
 function toggleSpeech() {
